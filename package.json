@@ -1,0 +1,33 @@
+{
+  "name": "chess-compass",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Grandmaster Atlas (GMA) - Enterprise-grade Chess Repertoire, FSRS-6 Training, and Deviation Engine",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "chessground": "^9.2.1",
+    "clsx": "^2.1.1",
+    "dexie": "^4.4.6",
+    "dexie-react-hooks": "^4.4.0",
+    "framer-motion": "^14.0.0",
+    "lucide-react": "^1.28.0",
+    "next": "16.1.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
