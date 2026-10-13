@@ -5,11 +5,15 @@
   "description": "Grandmaster Atlas (GMA) - Enterprise-grade Chess Repertoire, FSRS-6 Training, and Deviation Engine",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build:next": "next build",
+    "build": "opennextjs-cloudflare build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview"
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "^1.20.11",
     "chess.js": "^1.4.0",
     "chessground": "^9.2.1",
     "clsx": "^2.1.1",
@@ -17,10 +21,11 @@
     "dexie-react-hooks": "^4.4.0",
     "framer-motion": "^14.0.0",
     "lucide-react": "^1.28.0",
-    "next": "16.1.6",
+    "next": "^16.4.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.0",
+    "wrangler": "^4.150.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
