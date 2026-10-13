@@ -9,5 +9,12 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chess-compass-db",
+      "database_id": "5c1add24-8a80-4155-9766-0d304cab7423"
+    }
+  ]
 }
