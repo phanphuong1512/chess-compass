@@ -29,7 +29,7 @@ export interface ExplorerOptions {
 // Get saved token from browser localStorage
 export function getSavedLichessToken(): string {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('hb_lichess_token')?.trim() || '';
+    return localStorage.getItem('cc_lichess_token')?.trim() || localStorage.getItem('hb_lichess_token')?.trim() || '';
   }
   return '';
 }

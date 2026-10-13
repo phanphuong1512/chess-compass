@@ -140,7 +140,8 @@ export default function ExplorerPanel({ fen, onSelectMove }: ExplorerPanelProps)
     setVerifyingToken(false);
 
     if (check.valid && check.user) {
-      localStorage.setItem('hb_lichess_token', trimmed);
+      localStorage.setItem('cc_lichess_token', trimmed);
+      localStorage.removeItem('hb_lichess_token');
       setConnectedUser(check.user);
       setAuthRequired(false);
       setTokenSuccessMsg(`Connected as @${check.user.username}`);
@@ -330,6 +331,7 @@ export default function ExplorerPanel({ fen, onSelectMove }: ExplorerPanelProps)
               <button
                 type="button"
                 onClick={() => {
+                  localStorage.removeItem('cc_lichess_token');
                   localStorage.removeItem('hb_lichess_token');
                   setTokenInput('');
                   setConnectedUser(null);

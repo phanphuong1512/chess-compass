@@ -70,26 +70,62 @@ const SAMPLE_PUZZLES: Puzzle[] = [
 ];
 
 export default function PuzzlesView() {
+  const [puzzles, setPuzzles] = useState<Puzzle[]>(SAMPLE_PUZZLES);
   const [puzzleIndex, setPuzzleIndex] = useState(0);
   const [solved, setSolved] = useState<boolean | null>(null);
   const [showHint, setShowHint] = useState(false);
   const [showSolution, setShowSolution] = useState(false);
-  const [streak, setStreak] = useState(4);
-  const [userRating, setUserRating] = useState(1742);
+  const [streak, setStreak] = useState(0);
+  const [userRating, setUserRating] = useState(1500);
 
-  const currentPuzzle = SAMPLE_PUZZLES[puzzleIndex % SAMPLE_PUZZLES.length];
+  // Load persistent stats and live daily puzzle
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedStreak = localStorage.getItem('cc_puzzle_streak');
+      const savedRating = localStorage.getItem('cc_puzzle_rating');
+      if (savedStreak) setStreak(Number(savedStreak) || 0);
+      if (savedRating) setUserRating(Number(savedRating) || 1500);
+    }
+
+    // Fetch live daily puzzle
+    fetch('/api/puzzles/daily')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.puzzle) {
+          setPuzzles((prev) => [data.puzzle, ...prev.filter((p) => p.id !== data.puzzle.id)]);
+        }
+      })
+      .catch((err) => console.warn('Failed to fetch daily puzzle:', err));
+  }, []);
+
+  const currentPuzzle = puzzles[puzzleIndex % puzzles.length];
 
   const handleMove = useCallback(
     (move: { san: string }) => {
       if (solved !== null) return;
       if (move.san === currentPuzzle.solutionSan) {
         setSolved(true);
-        setStreak((s) => s + 1);
-        setUserRating((r) => r + 12);
+        setStreak((s) => {
+          const next = s + 1;
+          if (typeof window !== 'undefined') localStorage.setItem('cc_puzzle_streak', String(next));
+          return next;
+        });
+        setUserRating((r) => {
+          const next = r + 12;
+          if (typeof window !== 'undefined') localStorage.setItem('cc_puzzle_rating', String(next));
+          return next;
+        });
       } else {
         setSolved(false);
-        setStreak(0);
-        setUserRating((r) => Math.max(1200, r - 8));
+        setStreak(() => {
+          if (typeof window !== 'undefined') localStorage.setItem('cc_puzzle_streak', '0');
+          return 0;
+        });
+        setUserRating((r) => {
+          const next = Math.max(1000, r - 8);
+          if (typeof window !== 'undefined') localStorage.setItem('cc_puzzle_rating', String(next));
+          return next;
+        });
       }
     },
     [solved, currentPuzzle]
