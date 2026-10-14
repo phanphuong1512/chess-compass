@@ -318,7 +318,7 @@ export default function ExplorerPanel({ fen, onSelectMove }: ExplorerPanelProps)
 
           <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[0.7rem]">
             <a
-              href="https://lichess.org/account/oauth/token/create?description=Grandmaster+Atlas"
+              href="https://lichess.org/account/oauth/token/create?description=Chess+Compass"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-[#10B981] hover:underline font-medium"
@@ -358,7 +358,7 @@ export default function ExplorerPanel({ fen, onSelectMove }: ExplorerPanelProps)
           </p>
           <div className="flex items-center justify-center gap-2">
             <a
-              href="https://lichess.org/account/oauth/token/create?description=Grandmaster+Atlas"
+              href="https://lichess.org/account/oauth/token/create?description=Chess+Compass"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 rounded-lg bg-amber-400 px-3.5 py-1.5 text-xs font-bold text-gray-950 hover:bg-amber-300 transition-colors"

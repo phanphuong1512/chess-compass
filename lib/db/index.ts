@@ -9,7 +9,7 @@ import type {
   ImportedGame,
 } from '@/types/chess';
 
-class GMADatabase extends Dexie {
+class ChessCompassDatabase extends Dexie {
   repertoires!: EntityTable<Repertoire, 'id'>;
   nodes!: EntityTable<RepertoireNode, 'id'>;
   edges!: EntityTable<RepertoireEdge, 'id'>;
@@ -19,7 +19,7 @@ class GMADatabase extends Dexie {
   games!: EntityTable<ImportedGame, 'id'>;
 
   constructor() {
-    super('GrandmasterAtlas');
+    super('ChessCompass');
     
     this.version(1).stores({
       repertoires: 'id, name, color, createdAt',
@@ -33,4 +33,4 @@ class GMADatabase extends Dexie {
   }
 }
 
-export const db = new GMADatabase();
+export const db = new ChessCompassDatabase();

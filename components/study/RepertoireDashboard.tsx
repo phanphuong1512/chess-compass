@@ -108,8 +108,8 @@ export default function RepertoireDashboard({
     }
 
     return {
-      totalDueCount: due.length > 0 ? due.length : 7, // fallback to 7 if fresh session
-      totalMistakesCount: mistakes.length > 0 ? mistakes.length : 1,
+      totalDueCount: due.length,
+      totalMistakesCount: mistakes.length,
       totalLearnedCount: learned.length,
       topDueRepertoire: topRep || repertoires[0] || null,
     };

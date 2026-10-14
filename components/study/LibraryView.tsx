@@ -37,7 +37,7 @@ const MASTER_COURSES: LibraryCourse[] = [
     variationsCount: 28,
     depth: 14,
     rating: 4.9,
-    author: 'Grandmaster Atlas Academy',
+    author: 'Grandmaster Compass Academy',
     gradient: 'from-[#064E3B] via-[#047857] to-[#B45309]',
     description: 'Dynamic, aggressive opening avoiding dry Italian/Ruy Lopez lines while retaining deadly piece activity.',
     firstMoves: [
@@ -54,7 +54,7 @@ const MASTER_COURSES: LibraryCourse[] = [
     variationsCount: 42,
     depth: 16,
     rating: 4.9,
-    author: 'Grandmaster Atlas Academy',
+    author: 'Grandmaster Compass Academy',
     gradient: 'from-[#1E1B4B] via-[#312E81] to-[#4338CA]',
     description: 'Impenetrable defense against 1.e4 with clear pawn structures and harmonious piece development.',
     firstMoves: [
@@ -72,7 +72,7 @@ const MASTER_COURSES: LibraryCourse[] = [
     variationsCount: 54,
     depth: 18,
     rating: 4.8,
-    author: 'Grandmaster Atlas Academy',
+    author: 'Grandmaster Compass Academy',
     gradient: 'from-[#831843] via-[#9D174D] to-[#BE185D]',
     description: 'The highest-scoring counter-attacking response against 1.e4 with fighting imbalances and sharp play.',
     firstMoves: [
@@ -90,7 +90,7 @@ const MASTER_COURSES: LibraryCourse[] = [
     variationsCount: 38,
     depth: 16,
     rating: 4.9,
-    author: 'Grandmaster Atlas Academy',
+    author: 'Grandmaster Compass Academy',
     gradient: 'from-[#78350F] via-[#92400E] to-[#B45309]',
     description: 'Legendary kingside pawn storm weapon championed by Kasparov and Fischer against 1.d4.',
     firstMoves: [
@@ -108,7 +108,7 @@ const MASTER_COURSES: LibraryCourse[] = [
     variationsCount: 32,
     depth: 15,
     rating: 4.8,
-    author: 'Grandmaster Atlas Academy',
+    author: 'Grandmaster Compass Academy',
     gradient: 'from-[#14532D] via-[#166534] to-[#15803D]',
     description: 'Positional boa-constrictor favored by Kramnik and Carlsen, radiating immense pressure along the h1-a8 diagonal.',
     firstMoves: [
@@ -127,7 +127,7 @@ const MASTER_COURSES: LibraryCourse[] = [
     variationsCount: 26,
     depth: 14,
     rating: 4.7,
-    author: 'Grandmaster Atlas Academy',
+    author: 'Grandmaster Compass Academy',
     gradient: 'from-[#312E81] via-[#1E1B4B] to-[#0F172A]',
     description: 'Hypermodern approach controlling the d5 square from the flank with rich transpositional potential.',
     firstMoves: [

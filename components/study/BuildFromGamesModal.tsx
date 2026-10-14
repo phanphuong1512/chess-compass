@@ -65,8 +65,8 @@ export default function BuildFromGamesModal({
   // Load saved usernames from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedLichess = localStorage.getItem('gma_lichess_username') || 'phanphuongVII';
-      const savedChesscom = localStorage.getItem('gma_chesscom_username') || 'phanphuongVII';
+      const savedLichess = localStorage.getItem('cc_lichess_username') || localStorage.getItem('gma_lichess_username') || '';
+      const savedChesscom = localStorage.getItem('cc_chesscom_username') || localStorage.getItem('gma_chesscom_username') || '';
       setLichessUsername(savedLichess);
       setChesscomUsername(savedChesscom);
     }
@@ -102,8 +102,8 @@ export default function BuildFromGamesModal({
 
     // Save to localStorage
     if (typeof window !== 'undefined') {
-      if (lichess) localStorage.setItem('gma_lichess_username', lichess);
-      if (chesscom) localStorage.setItem('gma_chesscom_username', chesscom);
+      if (lichess) localStorage.setItem('cc_lichess_username', lichess);
+      if (chesscom) localStorage.setItem('cc_chesscom_username', chesscom);
     }
 
     setError(null);
@@ -575,7 +575,7 @@ export default function BuildFromGamesModal({
                       type="text"
                       value={lichessUsername}
                       onChange={(e) => setLichessUsername(e.target.value)}
-                      placeholder="e.g. phanphuongVII"
+                      placeholder="e.g. magnuscarlsen"
                       disabled={isAnalyzing}
                       onKeyDown={(e) => e.key === 'Enter' && handleAnalyzeGames()}
                       className="w-full bg-transparent text-base font-semibold text-white outline-none placeholder-gray-600 mt-0.5"
@@ -611,7 +611,7 @@ export default function BuildFromGamesModal({
                       type="text"
                       value={chesscomUsername}
                       onChange={(e) => setChesscomUsername(e.target.value)}
-                      placeholder="e.g. phanphuongVII"
+                      placeholder="e.g. hikaru"
                       disabled={isAnalyzing}
                       onKeyDown={(e) => e.key === 'Enter' && handleAnalyzeGames()}
                       className="w-full bg-transparent text-base font-semibold text-white outline-none placeholder-gray-600 mt-0.5"

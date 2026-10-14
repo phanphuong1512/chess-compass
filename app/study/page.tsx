@@ -552,8 +552,8 @@ export default function StudyPage() {
             setScreenMode('dashboard');
           }
         }}
-        learnedVariationsCount={allCards.filter((c) => c.reps > 0).length || 122}
-        totalVariationsCap={200}
+        learnedVariationsCount={allCards.filter((c) => c.reps > 0).length}
+        totalVariationsCap={Math.max(allCards.length, 50)}
         className="hidden md:flex"
       />
 
@@ -586,8 +586,8 @@ export default function StudyPage() {
                   }
                 }}
                 onCloseMobile={() => setMobileSidebarOpen(false)}
-                learnedVariationsCount={allCards.filter((c) => c.reps > 0).length || 122}
-                totalVariationsCap={200}
+                learnedVariationsCount={allCards.filter((c) => c.reps > 0).length}
+                totalVariationsCap={Math.max(allCards.length, 50)}
               />
             </motion.div>
           </div>

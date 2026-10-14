@@ -1,7 +1,7 @@
 import type { ImportedGame } from '@/types/chess';
 
 const CHESSCOM_API_BASE = 'https://api.chess.com/pub/player';
-const USER_AGENT = 'GrandmasterAtlas/1.0 (happy-bishop-repertoire; contact@happybishops.com)';
+const USER_AGENT = 'ChessCompass/1.0 (chess-compass; contact@chesscompass.app)';
 
 interface ChessComArchive {
   archives: string[];

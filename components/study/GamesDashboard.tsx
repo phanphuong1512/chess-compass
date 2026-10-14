@@ -63,10 +63,7 @@ export default function GamesDashboard({
   onAddToTraining,
 }: GamesDashboardProps) {
   // Connected Accounts
-  const [accounts, setAccounts] = useState<ConnectedAccount[]>([
-    { id: '1', platform: 'chesscom', username: 'phanphuongVII', lastSynced: Date.now() - 5 * 24 * 3600 * 1000 },
-    { id: '2', platform: 'lichess', username: 'phanphuongVII', lastSynced: Date.now() - 20 * 3600 * 1000 },
-  ]);
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
 
   // Selected account filter: 'all' or account.id
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
@@ -105,7 +102,7 @@ export default function GamesDashboard({
   // Load saved accounts from localStorage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('gma_connected_accounts');
+      const saved = localStorage.getItem('cc_connected_accounts') || localStorage.getItem('gma_connected_accounts');
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -119,6 +116,7 @@ export default function GamesDashboard({
   const saveAccounts = (newAccs: ConnectedAccount[]) => {
     setAccounts(newAccs);
     if (typeof window !== 'undefined') {
+      localStorage.setItem('cc_connected_accounts', JSON.stringify(newAccs));
       localStorage.setItem('gma_connected_accounts', JSON.stringify(newAccs));
     }
   };

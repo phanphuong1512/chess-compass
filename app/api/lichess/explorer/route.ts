@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    'User-Agent': 'GrandmasterAtlas/1.0 (happy-bishop-repertoire)',
+    'User-Agent': 'ChessCompass/1.0 (chess-compass)',
   };
 
   if (token) {

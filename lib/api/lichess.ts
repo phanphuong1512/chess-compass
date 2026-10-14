@@ -188,7 +188,7 @@ export async function fetchCloudEval(
     const res = await fetch(`${LICHESS_API_BASE}/cloud-eval?${params.toString()}`, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'GrandmasterAtlas/1.0',
+        'User-Agent': 'ChessCompass/1.0',
       },
       next: { revalidate: 3600 },
     });
@@ -215,7 +215,7 @@ export async function fetchTablebase(fen: string): Promise<LichessTablebase | nu
     const res = await fetch(`${TABLEBASE_BASE}/standard?fen=${encodeURIComponent(fen)}`, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'GrandmasterAtlas/1.0',
+        'User-Agent': 'ChessCompass/1.0',
       },
     });
 
@@ -238,7 +238,7 @@ export async function verifyLichessToken(
     const res = await fetch(`${LICHESS_API_BASE}/account`, {
       headers: {
         Authorization: `Bearer ${token.trim()}`,
-        'User-Agent': 'GrandmasterAtlas/1.0',
+        'User-Agent': 'ChessCompass/1.0',
       },
     });
 
@@ -263,7 +263,7 @@ export async function fetchLichessUser(username: string): Promise<LichessUser | 
     const res = await fetch(`${LICHESS_API_BASE}/user/${encodeURIComponent(username)}`, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'GrandmasterAtlas/1.0',
+        'User-Agent': 'ChessCompass/1.0',
       },
     });
     if (!res.ok) return null;
@@ -281,7 +281,7 @@ export async function fetchLichessGames(
   const token = getSavedLichessToken();
   const headers: Record<string, string> = {
     Accept: 'application/x-ndjson',
-    'User-Agent': 'GrandmasterAtlas/1.0',
+    'User-Agent': 'ChessCompass/1.0',
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;

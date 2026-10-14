@@ -29,6 +29,8 @@ import {
 import type { Repertoire, ImportedGame, RepertoireEdge } from '@/types/chess';
 import { fetchLichessGames } from '@/lib/api/lichess';
 import { fetchChessComGames } from '@/lib/api/chesscom';
+import { Chess } from 'chess.js';
+import { db } from '@/lib/db';
 
 interface StatisticsDashboardProps {
   repertoires: Repertoire[];
@@ -57,8 +59,23 @@ export default function StatisticsDashboard({
   allNodes,
   onOpenRepertoire,
 }: StatisticsDashboardProps) {
+  // Connected accounts
+  const [accounts, setAccounts] = useState<Array<{ id: string; platform: 'lichess' | 'chesscom'; username: string }>>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('cc_connected_accounts') || localStorage.getItem('gma_connected_accounts');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) setAccounts(parsed);
+        } catch {}
+      }
+    }
+  }, []);
+
   // Filter states
-  const [selectedAccount, setSelectedAccount] = useState<'chesscom' | 'lichess' | 'all'>('chesscom');
+  const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
   const [selectedColor, setSelectedColor] = useState<'both' | 'white' | 'black'>('both');
   const [selectedTimeControl, setSelectedTimeControl] = useState<string>('blitz');
@@ -74,23 +91,33 @@ export default function StatisticsDashboard({
   const [fetchedGames, setFetchedGames] = useState<ImportedGame[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load real games from Lichess & Chess.com on mount for phanphuongVII
+  // Load real games from connected accounts and Dexie
   useEffect(() => {
     let isCancelled = false;
     async function loadGames() {
       setIsLoading(true);
       try {
-        const [cGames, lGames] = await Promise.allSettled([
-          fetchChessComGames('phanphuongVII', 2),
-          fetchLichessGames('phanphuongVII', 30),
-        ]);
-        if (!isCancelled) {
-          const combined: ImportedGame[] = [];
-          if (cGames.status === 'fulfilled') combined.push(...cGames.value);
-          if (lGames.status === 'fulfilled') combined.push(...lGames.value);
-          if (combined.length > 0) {
-            setFetchedGames(combined);
+        const localGames = await db.games.toArray();
+        const combined: ImportedGame[] = [...localGames];
+
+        if (accounts.length > 0) {
+          const promises = accounts.map((acc) =>
+            acc.platform === 'chesscom'
+              ? fetchChessComGames(acc.username, 2)
+              : fetchLichessGames(acc.username, 30)
+          );
+          const results = await Promise.allSettled(promises);
+          for (const r of results) {
+            if (r.status === 'fulfilled') {
+              for (const g of r.value) {
+                if (!combined.some((cg) => cg.id === g.id)) combined.push(g);
+              }
+            }
           }
+        }
+
+        if (!isCancelled) {
+          setFetchedGames(combined);
         }
       } catch (err) {
         console.warn('Stats fetch games warning:', err);
@@ -102,126 +129,137 @@ export default function StatisticsDashboard({
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [accounts]);
 
-  // Compute stats or provide accurate real baseline stats matching ChessAtlas telemetry
-  const baseOpenings: OpeningStat[] = useMemo(() => [
-    {
-      name: 'Caro-Kann Defense',
-      eco: 'B10',
-      games: 79,
-      wins: 38,
-      draws: 10,
-      losses: 31,
-      score: 54.4,
-      vsAvg: +2.9,
-      prepStatus: 'Caro-Kann Defense',
-      prepRepName: 'My Black openings',
-    },
-    {
-      name: 'Vienna Game',
-      eco: 'C25',
-      games: 31,
-      wins: 17,
-      draws: 2,
-      losses: 12,
-      score: 58.1,
-      vsAvg: +6.6,
-      prepStatus: '2...Nc6 3.Bc4 Nf6 -...',
-      prepRepName: 'Vienna Game',
-    },
-    {
-      name: 'Sicilian Defense',
-      eco: 'B20',
-      games: 25,
-      wins: 13,
-      draws: 2,
-      losses: 10,
-      score: 56.0,
-      vsAvg: +4.5,
-      prepStatus: 'Sicilian Defense: Cl...',
-      prepRepName: 'My White openings',
-    },
-    {
-      name: 'English Opening',
-      eco: 'A11 · Caro-Kann Defensive System',
-      games: 5,
-      wins: 4,
-      draws: 0,
-      losses: 1,
-      score: 80.0,
-      vsAvg: +28.5,
-      prepStatus: 'view_line',
-    },
-    {
-      name: 'Modern Defense',
-      eco: 'B06',
-      games: 3,
-      wins: 2,
-      draws: 0,
-      losses: 1,
-      score: 66.7,
-      vsAvg: +15.2,
-      prepStatus: 'view_line',
-    },
-    {
-      name: "Bishop's Opening",
-      eco: 'C23',
-      games: 5,
-      wins: 3,
-      draws: 0,
-      losses: 2,
-      score: 60.0,
-      vsAvg: +8.5,
-      prepStatus: 'view_line',
-    },
-    {
-      name: 'French Defense',
-      eco: 'C00',
-      games: 7,
-      wins: 3,
-      draws: 0,
-      losses: 4,
-      score: 42.9,
-      vsAvg: -8.6,
-      prepStatus: 'view_line',
-    },
-    {
-      name: 'Slav Defense',
-      eco: 'D10',
-      games: 7,
-      wins: 3,
-      draws: 0,
-      losses: 4,
-      score: 42.9,
-      vsAvg: -8.6,
-      prepStatus: 'view_line',
-    },
-    {
-      name: 'Owen Defense',
-      eco: 'B00',
-      games: 3,
-      wins: 1,
-      draws: 0,
-      losses: 2,
-      score: 33.3,
-      vsAvg: -18.2,
-      prepStatus: 'view_line',
-    },
-    {
-      name: 'Scandinavian Defense',
-      eco: 'B01',
-      games: 11,
-      wins: 3,
-      draws: 0,
-      losses: 8,
-      score: 27.3,
-      vsAvg: -24.2,
-      prepStatus: 'view_line',
-    },
-  ], []);
+  // Compute stats dynamically from real fetched games or repertoire definitions
+  const baseOpenings: OpeningStat[] = useMemo(() => {
+    if (fetchedGames.length === 0) {
+      return repertoires.map((rep) => ({
+        name: rep.name,
+        eco: rep.color === 'white' ? '1.e4' : '1...e5',
+        games: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        score: 0,
+        vsAvg: 0,
+        prepStatus: 'Active Repertoire',
+        prepRepName: rep.name,
+      }));
+    }
 
-  // Display list (top 4 or all 10)
+    const map = new Map<string, { name: string; eco: string; wins: number; draws: number; losses: number; games: number }>();
+
+    for (const g of fetchedGames) {
+      let openingName = 'Open Game';
+      let eco = 'ECO';
+      try {
+        const c = new Chess();
+        c.loadPgn(g.pgn);
+        const headers = c.header();
+        openingName = headers.Opening || headers.Event || 'Unknown Opening';
+        eco = headers.ECO || '';
+      } catch {
+        // Fallback
+      }
+
+      const key = openingName;
+      const current = map.get(key) || { name: openingName, eco, wins: 0, draws: 0, losses: 0, games: 0 };
+      current.games += 1;
+
+      const isWhite = accounts.some((a) => a.username.toLowerCase() === g.white.toLowerCase());
+      const userColor = isWhite ? 'white' : 'black';
+
+      if (g.result === '1/2-1/2') {
+        current.draws += 1;
+      } else if ((userColor === 'white' && g.result === '1-0') || (userColor === 'black' && g.result === '0-1')) {
+        current.wins += 1;
+      } else {
+        current.losses += 1;
+      }
+
+      map.set(key, current);
+    }
+
+    const list: OpeningStat[] = Array.from(map.values()).map((item) => {
+      const score = item.games > 0 ? Math.round(((item.wins + 0.5 * item.draws) / item.games) * 1000) / 10 : 0;
+      const vsAvg = Math.round((score - 50.0) * 10) / 10;
+      const matchingRep = repertoires.find((r) => item.name.toLowerCase().includes(r.name.toLowerCase()));
+      return {
+        name: item.name,
+        eco: item.eco,
+        games: item.games,
+        wins: item.wins,
+        draws: item.draws,
+        losses: item.losses,
+        score,
+        vsAvg,
+        prepStatus: matchingRep ? 'In Repertoire' : 'Untracked Line',
+        prepRepName: matchingRep?.name,
+      };
+    });
+
+    list.sort((a, b) => b.games - a.games);
+    return list;
+  }, [fetchedGames, accounts, repertoires]);
+
+  // Dynamic metrics calculations
+  const totalAnalysed = fetchedGames.length;
+  const inBookCount = useMemo(() => {
+    return fetchedGames.filter((g) => {
+      return allEdges.some((e) => g.pgn.includes(e.san));
+    }).length;
+  }, [fetchedGames, allEdges]);
+
+  const outsideBookCount = Math.max(0, totalAnalysed - inBookCount);
+  const deepCount = useMemo(() => {
+    return fetchedGames.filter((g) => (g.pgn.match(/\d+\./g) || []).length >= 6).length;
+  }, [fetchedGames]);
+  const avgDepth = totalAnalysed > 0 ? Math.round((deepCount / totalAnalysed) * 12 * 10) / 10 : 0;
+  const uncoveredCount = baseOpenings.filter((o) => o.prepStatus === 'Untracked Line').length;
+
+  // Dynamic time control counts from real games
+  const tcCounts = useMemo(() => {
+    const counts = { blitz: 0, daily: 0, rapid: 0, bullet: 0 };
+    for (const g of fetchedGames) {
+      const tc = (g.timeControl || '').toLowerCase();
+      if (tc.includes('blitz') || tc === '180' || tc === '300' || tc === '180+2' || tc === '300+2') counts.blitz++;
+      else if (tc.includes('daily') || tc.includes('1/') || tc.includes('correspondence')) counts.daily++;
+      else if (tc.includes('rapid') || tc === '600' || tc === '900+10' || tc === '1800') counts.rapid++;
+      else if (tc.includes('bullet') || tc === '60' || tc === '120+1' || tc === '60+1') counts.bullet++;
+      else counts.blitz++;
+    }
+    return counts;
+  }, [fetchedGames]);
+
+  // Dynamic rating summary
+  const ratingSummary = useMemo(() => {
+    let latestRating = 1500;
+    let initialRating = 1500;
+    const ratings: number[] = [];
+
+    for (const g of fetchedGames) {
+      const isWhite = accounts.some((a) => a.username.toLowerCase() === g.white.toLowerCase());
+      const r = isWhite ? g.whiteRating : g.blackRating;
+      if (r && r > 0) {
+        ratings.push(r);
+      }
+    }
+
+    if (ratings.length > 0) {
+      initialRating = ratings[ratings.length - 1];
+      latestRating = ratings[0];
+    }
+
+    const diff = latestRating - initialRating;
+    return {
+      current: latestRating,
+      diff: diff >= 0 ? `+${diff}` : `${diff}`,
+      count: ratings.length,
+    };
+  }, [fetchedGames, accounts]);
+
+  // Display list (top 4 or all)
   const displayedOpenings = showAllOpenings ? baseOpenings : baseOpenings.slice(0, 4);
 
   // Positives & Negatives for "What carries your score, and what drags it"
@@ -253,12 +291,15 @@ export default function StatisticsDashboard({
           <div className="relative">
             <select
               value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value as any)}
+              onChange={(e) => setSelectedAccount(e.target.value)}
               className="appearance-none rounded-xl border border-white/10 bg-[#141B29] px-3.5 py-1.5 pr-8 text-xs font-semibold text-gray-200 hover:border-white/20 focus:outline-none focus:border-amber-400/50 cursor-pointer"
             >
-              <option value="chesscom">Chess.com · phanphuongVII</option>
-              <option value="lichess">Lichess · phanphuongVII</option>
               <option value="all">All accounts</option>
+              {accounts.map((acc) => (
+                <option key={`${acc.platform}-${acc.username}`} value={`${acc.platform}-${acc.username}`}>
+                  {acc.platform === 'chesscom' ? 'Chess.com' : 'Lichess'} · {acc.username}
+                </option>
+              ))}
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
           </div>
@@ -334,13 +375,13 @@ export default function StatisticsDashboard({
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-gray-400">
                 <LinkIcon className="h-4 w-4" />
               </div>
-              <span className="text-2xl font-extrabold text-white">31</span>
+              <span className="text-2xl font-extrabold text-white">{outsideBookCount}</span>
             </div>
             <div className="flex items-center gap-1 text-xs font-bold text-gray-300">
               <span>Played outside your repertoire</span>
               <span className="text-gray-500 cursor-help" title="Games where you deviated from your prepared lines">ⓘ</span>
             </div>
-            <p className="text-[0.68rem] text-gray-500 mt-1">of 200 analysed</p>
+            <p className="text-[0.68rem] text-gray-500 mt-1">of {totalAnalysed} analysed</p>
           </div>
 
           {/* Card 2: Deep enough to judge */}
@@ -349,13 +390,13 @@ export default function StatisticsDashboard({
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-gray-400">
                 <FileText className="h-4 w-4" />
               </div>
-              <span className="text-2xl font-extrabold text-white">97</span>
+              <span className="text-2xl font-extrabold text-white">{deepCount}</span>
             </div>
             <div className="flex items-center gap-1 text-xs font-bold text-gray-300">
               <span>Deep enough to judge</span>
               <span className="text-gray-500 cursor-help" title="Games where the opening lasted at least 6 half-moves">ⓘ</span>
             </div>
-            <p className="text-[0.68rem] text-gray-500 mt-1">of 169 that matched a repertoire</p>
+            <p className="text-[0.68rem] text-gray-500 mt-1">of {inBookCount} that matched a repertoire</p>
           </div>
 
           {/* Card 3: Average prep depth */}
@@ -364,7 +405,7 @@ export default function StatisticsDashboard({
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-gray-400">
                 <Ruler className="h-4 w-4" />
               </div>
-              <span className="text-2xl font-extrabold text-white">7.9</span>
+              <span className="text-2xl font-extrabold text-white">{avgDepth}</span>
             </div>
             <div className="flex items-center gap-1 text-xs font-bold text-gray-300">
               <span>Average prep depth</span>
@@ -379,13 +420,13 @@ export default function StatisticsDashboard({
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 text-gray-400">
                 <BookOpen className="h-4 w-4" />
               </div>
-              <span className="text-2xl font-extrabold text-white">2</span>
+              <span className="text-2xl font-extrabold text-white">{uncoveredCount}</span>
             </div>
             <div className="flex items-center gap-1 text-xs font-bold text-gray-300">
               <span>Openings you don't cover</span>
               <span className="text-gray-500 cursor-help" title="Frequently played openings with no active repertoire">ⓘ</span>
             </div>
-            <p className="text-[0.68rem] text-gray-500 mt-1">of your 10 most played</p>
+            <p className="text-[0.68rem] text-gray-500 mt-1">of your {Math.min(10, baseOpenings.length || 10)} most played</p>
           </div>
         </div>
 
@@ -912,18 +953,26 @@ export default function StatisticsDashboard({
 
           {/* Account & TC Badges */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <button
-              type="button"
-              className="rounded-full bg-amber-400/10 border border-amber-400/30 px-2.5 py-1 text-[0.68rem] font-bold text-amber-300"
-            >
-              Chess.com · phanphuongVII
-            </button>
-            <button
-              type="button"
-              className="rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[0.68rem] font-medium text-gray-400 hover:text-white transition-colors"
-            >
-              Lichess · phanphuongVII
-            </button>
+            {accounts.length > 0 ? (
+              accounts.map((acc, idx) => (
+                <button
+                  key={`${acc.platform}-${acc.username}`}
+                  type="button"
+                  className={`rounded-full px-2.5 py-1 text-[0.68rem] font-bold border transition-colors ${
+                    idx === 0
+                      ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
+                      : 'bg-white/5 border-white/5 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {acc.platform === 'chesscom' ? 'Chess.com' : 'Lichess'} · {acc.username}
+                </button>
+              ))
+            ) : (
+              <span className="rounded-full bg-white/5 border border-white/5 px-2.5 py-1 text-[0.68rem] font-medium text-gray-400">
+                Connected accounts will appear here
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => setRatingTc('blitz')}
@@ -933,7 +982,7 @@ export default function StatisticsDashboard({
                   : 'bg-white/5 text-gray-400 hover:text-white'
               }`}
             >
-              Blitz 96
+              Blitz {tcCounts.blitz}
             </button>
             <button
               type="button"
@@ -944,7 +993,7 @@ export default function StatisticsDashboard({
                   : 'bg-white/5 text-gray-400 hover:text-white'
               }`}
             >
-              Daily 3
+              Daily {tcCounts.daily}
             </button>
             <button
               type="button"
@@ -955,7 +1004,7 @@ export default function StatisticsDashboard({
                   : 'bg-white/5 text-gray-400 hover:text-white'
               }`}
             >
-              Rapid 1
+              Rapid {tcCounts.rapid}
             </button>
             <button
               type="button"
@@ -966,15 +1015,17 @@ export default function StatisticsDashboard({
                   : 'bg-white/5 text-gray-400 hover:text-white'
               }`}
             >
-              Bullet 9
+              Bullet {tcCounts.bullet}
             </button>
           </div>
         </div>
 
         {/* Big rating readout */}
         <div className="flex items-baseline gap-2 mb-4">
-          <span className="text-3xl font-black text-white font-mono">1616</span>
-          <span className="text-xs font-bold text-emerald-400 font-mono">+167 over this period</span>
+          <span className="text-3xl font-black text-white font-mono">{ratingSummary.current}</span>
+          <span className={`text-xs font-bold font-mono ${ratingSummary.diff.startsWith('+') ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {ratingSummary.diff} over this period
+          </span>
         </div>
 
         {/* Golden Rating Trendline SVG Chart */}
