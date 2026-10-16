@@ -13,6 +13,10 @@ interface ChessComGame {
   time_control: string;
   end_time: number;
   rated: boolean;
+  accuracies?: {
+    white: number;
+    black: number;
+  };
   white: {
     username: string;
     rating: number;
@@ -117,6 +121,7 @@ export async function fetchChessComGames(
           result,
           timeControl: game.time_control,
           date: new Date(game.end_time * 1000).toISOString().split('T')[0],
+          accuracies: game.accuracies,
         });
       }
     } catch {

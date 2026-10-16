@@ -288,7 +288,7 @@ export async function fetchLichessGames(
   }
 
   const response = await fetch(
-    `${LICHESS_API_BASE}/games/user/${encodeURIComponent(username.trim())}?max=${max}&pgnInJson=true&opening=true&rated=true`,
+    `${LICHESS_API_BASE}/games/user/${encodeURIComponent(username.trim())}?max=${max}&pgnInJson=true&opening=true&rated=true&evals=true`,
     { headers }
   );
 
@@ -319,6 +319,19 @@ export async function fetchLichessGames(
       const whiteName = String((whitePlayer?.user as Record<string, unknown>)?.name ?? 'Anonymous');
       const blackName = String((blackPlayer?.user as Record<string, unknown>)?.name ?? 'Anonymous');
 
+      const whiteAnalysis = whitePlayer?.analysis as Record<string, number> | undefined;
+      const blackAnalysis = blackPlayer?.analysis as Record<string, number> | undefined;
+
+      // Calculate accuracy from ACPL if available
+      let whiteAcc: number | undefined;
+      let blackAcc: number | undefined;
+      if (whiteAnalysis?.acpl !== undefined) {
+        whiteAcc = Math.max(20, Math.min(99.5, Math.round((100 - whiteAnalysis.acpl * 0.45) * 10) / 10));
+      }
+      if (blackAnalysis?.acpl !== undefined) {
+        blackAcc = Math.max(20, Math.min(99.5, Math.round((100 - blackAnalysis.acpl * 0.45) * 10) / 10));
+      }
+
       games.push({
         id: String(raw.id ?? ''),
         platform: 'lichess',
@@ -331,6 +344,8 @@ export async function fetchLichessGames(
         timeControl: String(raw.speed ?? ''),
         date: new Date(Number(raw.createdAt ?? Date.now())).toISOString().split('T')[0],
         opening: opening?.name,
+        accuracies: whiteAcc && blackAcc ? { white: whiteAcc, black: blackAcc } : undefined,
+        rawAnalysis: Array.isArray(raw.analysis) ? (raw.analysis as any[]) : undefined,
       });
     } catch {
       // skip unparseable lines

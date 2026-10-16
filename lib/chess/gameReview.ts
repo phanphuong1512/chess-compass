@@ -1,7 +1,7 @@
 import { Chess, type Square } from 'chess.js';
-import type { Repertoire } from '@/types/chess';
+import type { Repertoire, ImportedGame } from '@/types/chess';
 import { RepertoireDAG, fenToNodeId, STARTING_FEN } from './dag';
-import { evaluatePosition } from './eval';
+import { evaluateFenWithStockfish, type PositionEngineEval } from './stockfish';
 
 export type MoveClassification =
   | 'brilliant'
@@ -112,23 +112,25 @@ export interface MoveReviewItem {
   bestMove: { from: string; to: string; san: string; evalCp: number } | null;
   comment: string;
   tacticalExplanation: string;
+  engineSource: 'lichess-server' | 'lichess-cloud' | 'local-stockfish';
 }
 
 export interface GameReviewResult {
   whiteAccuracy: number;
   blackAccuracy: number;
   moves: MoveReviewItem[];
-  positions: string[]; // FEN for every ply (index 0 is starting FEN)
-  evalHistory: number[]; // Evaluation in centipawns from White's perspective for each ply
+  positions: string[];
+  evalHistory: number[];
   counts: {
     white: Record<MoveClassification, number>;
     black: Record<MoveClassification, number>;
   };
   summaryComment: string;
+  isRealStockfish: boolean;
 }
 
 /**
- * Calculates win probability from centipawn evaluation (sigmoid model)
+ * Calculates win probability from centipawn evaluation (Chess.com/Lichess Sigmoid model)
  */
 function centipawnsToWinProb(cp: number): number {
   return 100 / (1 + Math.pow(10, -cp / 400));
@@ -151,7 +153,28 @@ const COMMON_BOOK_LINES = new Set([
 ]);
 
 /**
- * Generates an intelligent, conversational Chess.com Coach explanation
+ * Parse embedded [%eval ...] comments from PGN text
+ */
+function extractPgnEvals(pgn: string): number[] {
+  const evals: number[] = [];
+  const regex = /\{\s*\[%eval\s+(-?\d+(?:\.\d+)?|#-?\d+)\]/g;
+  let match;
+  while ((match = regex.exec(pgn)) !== null) {
+    const raw = match[1];
+    let cp = 0;
+    if (raw.startsWith('#')) {
+      const m = parseInt(raw.slice(1), 10);
+      cp = m > 0 ? 30000 : -30000;
+    } else {
+      cp = Math.round(parseFloat(raw) * 100);
+    }
+    evals.push(cp);
+  }
+  return evals;
+}
+
+/**
+ * Generates an insightful, context-aware Chess.com Coach explanation based on actual Stockfish findings
  */
 function generateCoachComment(
   san: string,
@@ -160,38 +183,40 @@ function generateCoachComment(
   centipawnLoss: number,
   bestSan: string | null,
   capturedPiece: string | null,
-  isCheck: boolean
+  isCheck: boolean,
+  evalAfterCp: number
 ): { comment: string; explanation: string } {
   const side = turn === 'white' ? 'White' : 'Black';
   const opp = turn === 'white' ? 'Black' : 'White';
+  const evalFormatted = evalAfterCp >= 0 ? `+${(evalAfterCp / 100).toFixed(2)}` : `${(evalAfterCp / 100).toFixed(2)}`;
 
   switch (classification) {
     case 'book':
       return {
         comment: `${san} is standard opening theory.`,
-        explanation: 'Follows established grandmaster preparation, fighting for control of central squares and activating key pieces.',
+        explanation: 'Follows established grandmaster preparation, staking a claim in the center and facilitating piece development.',
       };
 
     case 'brilliant':
       return {
         comment: `Incredible move! ${san} is a brilliant tactical breakthrough!`,
-        explanation: `A daring sacrifice that shatters ${opp}'s structure and seizes an overwhelming tactical initiative.`,
+        explanation: `A daring sacrifice that shatters ${opp}'s structure and seizes an overwhelming tactical initiative (${evalFormatted}).`,
       };
 
     case 'great':
       return {
         comment: `${san} is a great move! You found the only continuation to maintain the advantage.`,
-        explanation: `A sharp defensive or aggressive resource that prevents ${opp}'s counterplay.`,
+        explanation: `A sharp defensive or aggressive resource that neutralizes ${opp}'s threats.`,
       };
 
     case 'best':
       return {
-        comment: `${san} is the top engine move. Precision play!`,
+        comment: `${san} is the top Stockfish engine move. Precision play!`,
         explanation: isCheck
-          ? `Delivers a forceful check, pressing the initiative against the opponent king.`
+          ? `Delivers a forceful check, pressing the initiative against the enemy king.`
           : capturedPiece
             ? `Calculated capture that wins material and cleans up the position.`
-            : `Coordinates pieces purposefully while maximizing square influence.`,
+            : `Coordinates pieces purposefully while maximizing square control and activity.`,
       };
 
     case 'excellent':
@@ -208,9 +233,9 @@ function generateCoachComment(
 
     case 'inaccuracy':
       return {
-        comment: `${san} is an inaccuracy (${centipawnLoss > 0 ? `-${(centipawnLoss / 100).toFixed(1)}` : ''}).`,
+        comment: `${san} is an inaccuracy (${centipawnLoss > 0 ? `-${(centipawnLoss / 100).toFixed(1)} cp` : ''}).`,
         explanation: bestSan
-          ? `A bit imprecise. Preparing ${bestSan} would have offered more active piece placement.`
+          ? `Slightly imprecise. Stockfish preferred ${bestSan} to maintain optimal piece placement.`
           : `Slightly slows down the initiative and allows ${opp} room to maneuver.`,
       };
 
@@ -218,54 +243,57 @@ function generateCoachComment(
       return {
         comment: `${san} is a mistake! It concedes the advantage to ${opp}.`,
         explanation: bestSan
-          ? `This concedes positional control. Finding ${bestSan} was much stronger.`
-          : `Creates vulnerable weaknesses in your position that your opponent can target.`,
+          ? `This concedes positional control. Stockfish recommended ${bestSan} as significantly stronger.`
+          : `Creates vulnerable weaknesses in your position that your opponent can exploit.`,
       };
 
     case 'miss':
       return {
         comment: `${san} is a missed opportunity.`,
         explanation: bestSan
-          ? `You had a chance to punish ${opp}'s previous inaccuracy with ${bestSan}.`
-          : `Overlooks an immediate tactical tactic to claim material or positional dominance.`,
+          ? `You had a chance to punish ${opp}'s previous blunder with ${bestSan}.`
+          : `Overlooks an immediate tactical shot to claim material or decisive dominance.`,
       };
 
     case 'blunder':
       return {
-        comment: `${san} is a blunder! This drastically shifts the evaluation.`,
+        comment: `${san} is a blunder! This drastically shifts the evaluation to ${evalFormatted}.`,
         explanation: bestSan
-          ? `Hangs valuable tactical resources. Playing ${bestSan} would have kept you in the game.`
-          : `Disastrous move that hands decisive winning chances to ${opp}.`,
+          ? `Hangs valuable tactical resources. Playing ${bestSan} was required to stay in the game.`
+          : `A decisive error that hands winning chances directly to ${opp}.`,
       };
   }
 }
 
 /**
- * Executes a full Chess.com Game Review analysis on a PGN string
+ * Analyzes a game using real Stockfish evaluations:
+ * 1. Uses embedded Lichess raw analysis if available
+ * 2. Uses embedded PGN [%eval ...] comments if available
+ * 3. Falls back to real Lichess Cloud Stockfish (Depth 50-70+) and client-side Stockfish
  */
-export function analyzeFullGame(
-  pgn: string,
+export async function analyzeFullGameAsync(
+  game: ImportedGame,
   userColor: 'white' | 'black' = 'white',
   dag?: RepertoireDAG,
-  repertoire?: Repertoire
-): GameReviewResult {
+  repertoire?: Repertoire,
+  onProgress?: (progressPercent: number, message: string) => void
+): Promise<GameReviewResult> {
   const chess = new Chess();
   try {
-    chess.loadPgn(pgn);
-  } catch (err) {
-    // If PGN has malformed headers or moves, attempt standard load
+    chess.loadPgn(game.pgn);
+  } catch {
     try {
-      const clean = pgn.replace(/\[.*?\]\s*/g, '').trim();
+      const clean = game.pgn.replace(/\[.*?\]\s*/g, '').trim();
       chess.loadPgn(clean);
     } catch {
-      // fallback empty
+      // fallback
     }
   }
 
   const rawMoves = chess.history({ verbose: true });
   const walkChess = new Chess();
   const positions: string[] = [STARTING_FEN];
-  const evalHistory: number[] = [20]; // starting eval ~+0.20 for white
+  const evalHistory: number[] = [20];
   const reviewMoves: MoveReviewItem[] = [];
 
   const counts = {
@@ -298,6 +326,11 @@ export function analyzeFullGame(
   const whiteAccuracyAccum: number[] = [];
   const blackAccuracyAccum: number[] = [];
 
+  // Check if PGN has embedded Stockfish evals
+  const pgnEvals = extractPgnEvals(game.pgn);
+  const hasRawLichess = Array.isArray(game.rawAnalysis) && game.rawAnalysis.length > 0;
+  const hasEmbeddedPgnEvals = pgnEvals.length >= rawMoves.length;
+
   let prevOpponentBlundered = false;
 
   for (let ply = 0; ply < rawMoves.length; ply++) {
@@ -306,52 +339,83 @@ export function analyzeFullGame(
     const moveNumber = Math.floor(ply / 2) + 1;
     const fenBefore = walkChess.fen();
 
-    // Evaluate position before move
-    const evalBefore = evaluatePosition(fenBefore);
-    const beforeScoreCp = evalBefore.multiPv[0]?.score.value ?? 0;
+    // Progress update
+    if (onProgress && !hasRawLichess && !hasEmbeddedPgnEvals && ply % 4 === 0) {
+      const pct = Math.round(((ply + 1) / rawMoves.length) * 100);
+      onProgress(pct, `Analyzing position with Stockfish (${ply + 1}/${rawMoves.length})...`);
+    }
 
-    // Find best legal move in position before move
-    const legalMoves = walkChess.moves({ verbose: true });
-    let bestLegalMove: { from: string; to: string; san: string; evalCp: number } | null = null;
-    let bestEvalCp = turn === 'white' ? -99999 : 99999;
+    let beforeScoreCp = evalHistory[evalHistory.length - 1] ?? 20;
+    let afterScoreCp = 20;
+    let bestMove: { from: string; to: string; san: string; evalCp: number } | null = null;
+    let engineSource: 'lichess-server' | 'lichess-cloud' | 'local-stockfish' = 'local-stockfish';
+    let lichessJudgment: string | undefined;
 
-    for (const cand of legalMoves) {
-      walkChess.move(cand);
-      const candEval = evaluatePosition(walkChess.fen());
-      const candScore = candEval.multiPv[0]?.score.value ?? 0;
-      walkChess.undo();
+    // 1. Check Lichess raw server analysis
+    if (hasRawLichess && game.rawAnalysis![ply]) {
+      const serverItem = game.rawAnalysis![ply];
+      engineSource = 'lichess-server';
+      if (serverItem.eval !== undefined) {
+        afterScoreCp = serverItem.eval;
+      } else if (serverItem.mate !== undefined) {
+        afterScoreCp = serverItem.mate > 0 ? 30000 : -30000;
+      }
+      if (serverItem.judgment) {
+        lichessJudgment = serverItem.judgment.name;
+      }
+      if (serverItem.best) {
+        const uci = serverItem.best;
+        const from = uci.slice(0, 2);
+        const to = uci.slice(2, 4);
+        try {
+          const testChess = new Chess(fenBefore);
+          const m = testChess.move({ from: from as Square, to: to as Square, promotion: (uci[4] as any) || undefined });
+          if (m) {
+            bestMove = { from, to, san: m.san, evalCp: afterScoreCp };
+          }
+        } catch {}
+      }
+    } else if (hasEmbeddedPgnEvals && pgnEvals[ply] !== undefined) {
+      // 2. Check embedded PGN evals
+      engineSource = 'lichess-server';
+      afterScoreCp = pgnEvals[ply];
+    } else {
+      // 3. Query Real Stockfish (Cloud or Web Worker)
+      const sfBefore = await evaluateFenWithStockfish(fenBefore);
+      engineSource = sfBefore.source;
+      beforeScoreCp = sfBefore.scoreCp;
 
-      if (turn === 'white') {
-        if (candScore > bestEvalCp) {
-          bestEvalCp = candScore;
-          bestLegalMove = { from: cand.from, to: cand.to, san: cand.san, evalCp: candScore };
-        }
-      } else {
-        if (candScore < bestEvalCp) {
-          bestEvalCp = candScore;
-          bestLegalMove = { from: cand.from, to: cand.to, san: cand.san, evalCp: candScore };
-        }
+      if (sfBefore.bestMoveUci && sfBefore.bestMoveSan) {
+        bestMove = {
+          from: sfBefore.bestMoveUci.slice(0, 2),
+          to: sfBefore.bestMoveUci.slice(2, 4),
+          san: sfBefore.bestMoveSan,
+          evalCp: sfBefore.scoreCp,
+        };
       }
     }
 
-    // Play the actual move
+    // Play move
     walkChess.move(move);
     const fenAfter = walkChess.fen();
     positions.push(fenAfter);
 
-    const evalAfter = evaluatePosition(fenAfter);
-    const afterScoreCp = evalAfter.multiPv[0]?.score.value ?? 0;
-    evalHistory.push(afterScoreCp);
-
-    // Calculate centipawn loss from the player's perspective
-    let cpLoss = 0;
-    if (turn === 'white') {
-      cpLoss = Math.max(0, (bestLegalMove?.evalCp ?? beforeScoreCp) - afterScoreCp);
-    } else {
-      cpLoss = Math.max(0, afterScoreCp - (bestLegalMove?.evalCp ?? beforeScoreCp));
+    if (!hasRawLichess && !hasEmbeddedPgnEvals) {
+      const sfAfter = await evaluateFenWithStockfish(fenAfter);
+      afterScoreCp = sfAfter.scoreCp;
     }
 
-    // Check if move was in opening book
+    evalHistory.push(afterScoreCp);
+
+    // Calculate centipawn loss from moving player's perspective
+    let cpLoss = 0;
+    if (turn === 'white') {
+      cpLoss = Math.max(0, beforeScoreCp - afterScoreCp);
+    } else {
+      cpLoss = Math.max(0, afterScoreCp - beforeScoreCp);
+    }
+
+    // Check opening book
     const nodeIdBefore = fenToNodeId(fenBefore);
     let isBook = false;
     if (dag && repertoire) {
@@ -364,12 +428,16 @@ export function analyzeFullGame(
       isBook = true;
     }
 
-    // Classify Move
+    // Classification
     let classification: MoveClassification;
-    if (isBook && cpLoss < 60) {
+    if (lichessJudgment) {
+      if (lichessJudgment === 'Blunder') classification = 'blunder';
+      else if (lichessJudgment === 'Mistake') classification = 'mistake';
+      else if (lichessJudgment === 'Inaccuracy') classification = 'inaccuracy';
+      else classification = isBook ? 'book' : 'good';
+    } else if (isBook && cpLoss < 60) {
       classification = 'book';
     } else {
-      // Check for brilliant sacrifice
       const isSacrifice =
         (move.piece === 'q' || move.piece === 'r' || move.piece === 'b' || move.piece === 'n') &&
         move.captured !== undefined &&
@@ -397,7 +465,7 @@ export function analyzeFullGame(
     counts[turn][classification]++;
     prevOpponentBlundered = classification === 'blunder' || classification === 'mistake';
 
-    // Calculate Win% delta and Move Accuracy
+    // Win% delta and Move Accuracy
     const winProbBefore = centipawnsToWinProb(turn === 'white' ? beforeScoreCp : -beforeScoreCp);
     const winProbAfter = centipawnsToWinProb(turn === 'white' ? afterScoreCp : -afterScoreCp);
     const deltaWin = Math.max(0, winProbBefore - winProbAfter);
@@ -414,9 +482,10 @@ export function analyzeFullGame(
       turn,
       classification,
       cpLoss,
-      bestLegalMove?.san ?? null,
+      bestMove?.san ?? null,
       move.captured ?? null,
-      walkChess.inCheck()
+      walkChess.inCheck(),
+      afterScoreCp
     );
 
     reviewMoves.push({
@@ -432,33 +501,37 @@ export function analyzeFullGame(
       evalAfterCp: afterScoreCp,
       centipawnLoss: cpLoss,
       classification,
-      bestMove: bestLegalMove,
+      bestMove,
       comment,
       tacticalExplanation: explanation,
+      engineSource,
     });
   }
 
-  const whiteAccuracy =
-    whiteAccuracyAccum.length > 0
-      ? Math.round(
-          (whiteAccuracyAccum.reduce((a, b) => a + b, 0) / whiteAccuracyAccum.length) * 10
-        ) / 10
-      : 80.0;
+  // Use official accuracy from Chess.com or calculate from real moves
+  let whiteAccuracy = game.accuracies?.white;
+  let blackAccuracy = game.accuracies?.black;
 
-  const blackAccuracy =
-    blackAccuracyAccum.length > 0
-      ? Math.round(
-          (blackAccuracyAccum.reduce((a, b) => a + b, 0) / blackAccuracyAccum.length) * 10
-        ) / 10
-      : 75.0;
+  if (whiteAccuracy === undefined) {
+    whiteAccuracy =
+      whiteAccuracyAccum.length > 0
+        ? Math.round((whiteAccuracyAccum.reduce((a, b) => a + b, 0) / whiteAccuracyAccum.length) * 10) / 10
+        : 80.0;
+  }
+  if (blackAccuracy === undefined) {
+    blackAccuracy =
+      blackAccuracyAccum.length > 0
+        ? Math.round((blackAccuracyAccum.reduce((a, b) => a + b, 0) / blackAccuracyAccum.length) * 10) / 10
+        : 75.0;
+  }
 
-  let summaryComment = 'A closely contested struggle featuring sharp tactical ideas.';
+  let summaryComment = 'A sharp battle with critical turning points.';
   if (whiteAccuracy > 85 && blackAccuracy > 85) {
     summaryComment = 'A masterclass of high accuracy and solid preparation from both sides.';
-  } else if (userColor === 'white' && whiteAccuracy > blackAccuracy + 15) {
-    summaryComment = 'You outplayed your opponent with exceptional strategic precision!';
-  } else if (userColor === 'black' && blackAccuracy > whiteAccuracy + 15) {
-    summaryComment = 'Dominant performance by Black, capitalizing cleanly on White’s mistakes.';
+  } else if (userColor === 'white' && whiteAccuracy > blackAccuracy + 12) {
+    summaryComment = 'You dominated the board with superior accuracy, capitalizing on opponent mistakes.';
+  } else if (userColor === 'black' && blackAccuracy > whiteAccuracy + 12) {
+    summaryComment = 'Black took firm control and executed the tactical conversion cleanly.';
   }
 
   return {
@@ -469,5 +542,6 @@ export function analyzeFullGame(
     evalHistory,
     counts,
     summaryComment,
+    isRealStockfish: true,
   };
 }

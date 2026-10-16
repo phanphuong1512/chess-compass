@@ -176,6 +176,17 @@ export interface ImportedGame {
   timeControl?: string;
   date: string;
   opening?: string;
+  accuracies?: { white: number; black: number };
+  rawAnalysis?: Array<{
+    eval?: number;
+    mate?: number;
+    best?: string;
+    variation?: string;
+    judgment?: {
+      name: 'Inaccuracy' | 'Mistake' | 'Blunder';
+      comment: string;
+    };
+  }>;
 }
 
 // Training session types
