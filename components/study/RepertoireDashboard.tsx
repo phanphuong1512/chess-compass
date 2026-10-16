@@ -34,32 +34,27 @@ interface RepertoireDashboardProps {
 }
 
 // Preset visual themes for covers matching ChessAtlas artwork
-const COVER_THEMES: Record<string, { gradient: string; icon: string; symbol: string; badge?: string }> = {
+const COVER_THEMES: Record<string, { bg: string; symbol: string; badge?: string }> = {
   rep_vienna: {
-    gradient: 'from-[#064E3B] via-[#047857] to-[#B45309]',
-    icon: '🏰',
+    bg: 'bg-emerald-950/70 border-emerald-500/30 text-emerald-300',
     symbol: '♞',
     badge: 'Library',
   },
   rep_white_e4: {
-    gradient: 'from-[#78350F] via-[#92400E] to-[#B45309]',
-    icon: '☀️',
+    bg: 'bg-amber-950/70 border-amber-500/30 text-amber-300',
     symbol: '♚',
   },
   rep_black_sicilian: {
-    gradient: 'from-[#1E1B4B] via-[#312E81] to-[#4338CA]',
-    icon: '⚔️',
+    bg: 'bg-slate-900 border-slate-700 text-slate-200',
     symbol: '♞',
     badge: '1 mistake',
   },
   default_white: {
-    gradient: 'from-[#134E4A] via-[#0F766E] to-[#047857]',
-    icon: '🏛️',
+    bg: 'bg-amber-950/70 border-amber-500/30 text-amber-300',
     symbol: '♙',
   },
   default_black: {
-    gradient: 'from-[#1E293B] via-[#0F172A] to-[#1E1B4B]',
-    icon: '🌙',
+    bg: 'bg-slate-900 border-slate-700 text-slate-200',
     symbol: '♟',
   },
 };
@@ -152,18 +147,16 @@ export default function RepertoireDashboard({
       <div
         key={rep.id}
         onClick={() => onSelectRepertoire(rep.id)}
-        className="group relative flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#141B29]/90 p-5 backdrop-blur-md transition-all duration-200 hover:-translate-y-1 hover:border-white/20 hover:bg-[#182032] hover:shadow-2xl cursor-pointer"
+        className="group relative flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#121724] p-5 transition-colors duration-150 hover:border-amber-400/40 hover:bg-[#161F30] cursor-pointer"
       >
         <div>
           {/* Top Row: Thumbnail + Info */}
           <div className="flex gap-4 items-start mb-4">
-            {/* Illustrated Thumbnail Cover */}
+            {/* Thumbnail Cover */}
             <div
-              className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br ${theme.gradient} flex items-center justify-center shadow-md group-hover:scale-105 transition-transform`}
+              className={`relative h-14 w-14 shrink-0 rounded-xl border flex items-center justify-center font-bold text-2xl select-none ${theme.bg}`}
             >
-              <div className="absolute inset-0 bg-black/15" />
-              <span className="text-2xl drop-shadow-md select-none">{theme.symbol}</span>
-              <span className="absolute bottom-1 right-1 text-xs opacity-75">{theme.icon}</span>
+              <span>{theme.symbol}</span>
             </div>
 
             {/* Title & Metadata */}
@@ -235,14 +228,12 @@ export default function RepertoireDashboard({
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* CARD 1: TRAIN NOW (Wider card) */}
-        <div className="lg:col-span-2 rounded-2xl border border-white/[0.08] bg-[#141B29]/90 p-6 backdrop-blur-md flex flex-col justify-between shadow-xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-
+        <div className="lg:col-span-2 rounded-2xl border border-white/[0.08] bg-[#121724] p-6 flex flex-col justify-between relative overflow-hidden group">
           <div>
             <span className="text-[0.68rem] font-bold tracking-wider uppercase text-amber-400">
               TRAIN NOW
             </span>
-            <h2 className="text-4xl font-extrabold text-white mt-1.5 tracking-tight font-mono">
+            <h2 className="text-4xl font-extrabold text-white mt-1.5 tracking-tight tabular-nums">
               {totalDueCount} positions
             </h2>
             <p className="text-xs text-gray-400 mt-1">
@@ -257,7 +248,7 @@ export default function RepertoireDashboard({
             <button
               type="button"
               onClick={() => onStartReview?.(topDueRepertoire?.id)}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 px-5 py-2.5 text-xs font-bold text-[#0B0F17] shadow-lg transition-all active:scale-[0.98] cursor-pointer"
+              className="flex items-center gap-2 rounded-xl bg-amber-400 hover:bg-amber-300 px-5 py-2.5 text-xs font-bold text-stone-950 transition-colors duration-150 active:scale-[0.98] cursor-pointer"
             >
               <RotateCcw className="h-4 w-4" />
               <span>Start review →</span>
@@ -268,21 +259,21 @@ export default function RepertoireDashboard({
         {/* CARD 2: STREAK & DRILL MISTAKES (Stacked column) */}
         <div className="flex flex-col gap-3.5">
           {/* Top Subcard: Streak */}
-          <div className="rounded-2xl border border-white/[0.08] bg-[#141B29]/90 p-5 backdrop-blur-md shadow-lg">
+          <div className="rounded-2xl border border-white/[0.08] bg-[#121724] p-5">
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[0.65rem] font-bold tracking-wider uppercase text-gray-400">
                   STREAK
                 </span>
                 <div className="flex items-baseline gap-2 mt-0.5">
-                  <span className="text-2xl font-extrabold text-white font-mono">1</span>
+                  <span className="text-2xl font-extrabold text-white tabular-nums">1</span>
                   <span className="text-xs text-gray-400">day</span>
                   <span className="text-[0.7rem] text-gray-500 ml-2">Best streak 1 day</span>
                 </div>
               </div>
 
               {/* Fire Flame Icon */}
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400 shadow-xs">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-500/15 text-orange-400">
                 <Flame className="h-5 w-5 fill-orange-400/30" />
               </div>
             </div>

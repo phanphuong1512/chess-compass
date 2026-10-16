@@ -15,6 +15,7 @@ import {
   Sparkles,
   BookOpen,
   Filter,
+  Check,
 } from 'lucide-react';
 import type { DeviationReport, ImportedGame, Repertoire } from '@/types/chess';
 import { fetchLichessGames, fetchLichessUser } from '@/lib/api/lichess';
@@ -127,7 +128,7 @@ export default function DeviationDashboard({
       </div>
 
       {/* Sync Games Control Card */}
-      <div className="rounded-2xl border border-white/10 bg-[#141B29] p-5 shadow-xl">
+      <div className="rounded-2xl border border-white/10 bg-[#141B29] p-5">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
           <Download className="h-4 w-4 text-[#10B981]" />
           Đồng bộ ván đấu trực tiếp
@@ -140,7 +141,7 @@ export default function DeviationDashboard({
             onClick={() => setPlatform('lichess')}
             className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
               platform === 'lichess'
-                ? 'bg-[#10B981] text-white shadow-sm'
+                ? 'bg-[#10B981] text-white'
                 : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
             }`}
           >
@@ -151,7 +152,7 @@ export default function DeviationDashboard({
             onClick={() => setPlatform('chesscom')}
             className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
               platform === 'chesscom'
-                ? 'bg-[#10B981] text-white shadow-sm'
+                ? 'bg-[#10B981] text-white'
                 : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
             }`}
           >
@@ -211,8 +212,11 @@ export default function DeviationDashboard({
         {/* Live sync stats */}
         {games.length > 0 && (
           <div className="mt-3 flex items-center justify-between text-xs text-gray-300 border-t border-white/10 pt-3">
-            <span>
-              ✓ Đã tải <strong className="text-white">{games.length} ván đấu thực tế</strong> từ {platform === 'lichess' ? 'Lichess' : 'Chess.com'}
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <span>
+                Đã tải <strong className="text-white">{games.length} ván đấu thực tế</strong> từ {platform === 'lichess' ? 'Lichess' : 'Chess.com'}
+              </span>
             </span>
             {analyzing && (
               <span className="flex items-center gap-1.5 text-amber-300">
@@ -253,7 +257,7 @@ export default function DeviationDashboard({
       )}
 
       {/* Deviations List */}
-      <div className="rounded-2xl border border-white/10 bg-[#141B29] p-5 shadow-xl">
+      <div className="rounded-2xl border border-white/10 bg-[#141B29] p-5">
         <div className="flex items-center justify-between mb-4 border-b border-white/[0.08] pb-3">
           <h3 className="flex items-center gap-2 text-sm font-bold text-white">
             <AlertTriangle className="h-4 w-4 text-amber-400" />
@@ -361,7 +365,7 @@ export default function DeviationDashboard({
                       <button
                         type="button"
                         onClick={() => onAddMoveToRepertoire(dev.positionFen, dev.playedMove)}
-                        className="flex items-center gap-1 rounded-lg bg-purple-500/20 border border-purple-500/30 px-2.5 py-1 text-[0.68rem] font-bold text-purple-300 hover:bg-purple-500/30 transition-colors cursor-pointer"
+                        className="flex items-center gap-1 rounded-lg bg-amber-400/15 border border-amber-400/30 px-2.5 py-1 text-[0.68rem] font-bold text-amber-300 hover:bg-amber-400/25 transition-colors cursor-pointer"
                         title="Thêm nước này vào Repertoire DAG"
                       >
                         <BookOpen className="h-3 w-3" /> + Repertoire

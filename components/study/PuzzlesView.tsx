@@ -12,6 +12,8 @@ import {
   Trophy,
   ArrowRight,
   Zap,
+  Lightbulb,
+  Puzzle as PuzzleIcon,
 } from 'lucide-react';
 import ChessBoard from './ChessBoard';
 
@@ -139,16 +141,16 @@ export default function PuzzlesView() {
   };
 
   return (
-    <div className="w-full min-h-[calc(100vh-3.5rem)] bg-[#0B0F17] p-6 lg:p-8">
+    <div className="w-full min-h-[calc(100dvh-3.5rem)] bg-[#0B0F17] p-6 lg:p-8">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400/20 text-amber-400 font-bold">
-                🧩
+                <PuzzleIcon className="h-4 w-4" />
               </span>
-              <h1 className="text-2xl font-extrabold text-white">Daily Puzzle Trainer</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-white">Daily Tactical Puzzles</h1>
             </div>
             <p className="text-xs text-gray-400 mt-1">
               Sharp tactical drills matched to your active repertoire themes.
@@ -160,11 +162,11 @@ export default function PuzzlesView() {
             <div className="flex items-center gap-1.5 rounded-xl bg-white/5 border border-white/5 px-3 py-1.5 text-xs">
               <Zap className="h-4 w-4 text-amber-400" />
               <span className="text-gray-400">Rating:</span>
-              <span className="font-bold text-white font-mono">{userRating}</span>
+              <span className="font-bold text-white tabular-nums">{userRating}</span>
             </div>
             <div className="flex items-center gap-1.5 rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 text-xs text-orange-400 font-bold">
               <Flame className="h-4 w-4" />
-              <span>Streak: {streak}</span>
+              <span className="tabular-nums">Streak: {streak}</span>
             </div>
           </div>
         </div>
@@ -172,7 +174,7 @@ export default function PuzzlesView() {
         {/* Main Grid: Board + Details */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left: ChessBoard */}
-          <div className="lg:col-span-7 rounded-2xl border border-white/10 bg-[#111726] p-4 shadow-xl">
+          <div className="lg:col-span-7 rounded-2xl border border-white/10 bg-[#111726] p-4">
             <div className="mb-3 flex items-center justify-between px-1">
               <span className="text-xs font-bold text-gray-300">
                 {currentPuzzle.turn === 'white' ? '⚪ White to move' : '⚫ Black to move'}
@@ -241,8 +243,9 @@ export default function PuzzlesView() {
 
               {/* Hint Box */}
               {showHint && !solved && (
-                <div className="rounded-xl bg-white/5 p-3 text-xs text-amber-300/90 border border-amber-500/20">
-                  💡 Hint: Look for active knight jump or center breaks.
+                <div className="rounded-xl bg-white/5 p-3 text-xs text-amber-300 border border-amber-500/20 flex items-center gap-2">
+                  <Lightbulb className="h-4 w-4 shrink-0" />
+                  <span>Hint: Look for active knight jump or center breaks.</span>
                 </div>
               )}
 
@@ -260,14 +263,15 @@ export default function PuzzlesView() {
                     <button
                       type="button"
                       onClick={() => setShowHint(true)}
-                      className="flex-1 rounded-xl bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-bold text-gray-300 transition-colors cursor-pointer"
+                      className="flex-1 rounded-xl bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-bold text-gray-300 transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5"
                     >
-                      💡 Hint
+                      <Lightbulb className="h-3.5 w-3.5" />
+                      <span>Hint</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowSolution(true)}
-                      className="flex-1 rounded-xl bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-bold text-gray-300 transition-colors cursor-pointer"
+                      className="flex-1 rounded-xl bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-bold text-gray-300 transition-colors duration-150 cursor-pointer"
                     >
                       Reveal
                     </button>
@@ -276,7 +280,7 @@ export default function PuzzlesView() {
                   <button
                     type="button"
                     onClick={handleNextPuzzle}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg hover:from-emerald-400 hover:to-teal-400 transition-all cursor-pointer"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 px-4 py-2.5 text-xs font-bold text-stone-950 transition-colors duration-150 cursor-pointer active:scale-[0.98]"
                   >
                     <span>Next Puzzle</span>
                     <ArrowRight className="h-4 w-4" />

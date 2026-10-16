@@ -541,7 +541,7 @@ export default function StudyPage() {
   }, [navigatePrev, navigateNext, navigateFirst, navigateLast]);
 
   return (
-    <div className="flex h-screen w-full bg-[#0B0F17] text-white overflow-hidden select-none">
+    <div className="flex h-[100dvh] w-full bg-[#0B0F17] text-white overflow-hidden select-none">
       {/* 1. Desktop Persistent Left Sidebar */}
       <StudySidebar
         activeTab={studyNavTab}
@@ -565,7 +565,7 @@ export default function StudyPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 backdrop-blur-xs"
+              className="fixed inset-0 bg-black/70"
               onClick={() => setMobileSidebarOpen(false)}
             />
             <motion.div
@@ -573,7 +573,7 @@ export default function StudyPage() {
               animate={{ x: 0 }}
               exit={{ x: -260 }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="relative z-10 w-[260px] h-full shadow-2xl"
+              className="relative z-10 w-[260px] h-full border-r border-white/10"
             >
               <StudySidebar
                 activeTab={studyNavTab}
@@ -597,7 +597,7 @@ export default function StudyPage() {
       {/* 3. Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="shrink-0 h-14 border-b border-white/[0.08] bg-[#0B0F17]/95 backdrop-blur-xl px-4 flex items-center justify-between z-20">
+        <header className="shrink-0 h-14 border-b border-white/[0.08] bg-[#0B0F17] px-4 flex items-center justify-between z-20">
           <div className="flex items-center gap-3">
             {/* Mobile Hamburger toggle */}
             <button
@@ -700,7 +700,7 @@ export default function StudyPage() {
                     onClick={() => setViewMode('graph')}
                     className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                       viewMode === 'graph'
-                        ? 'bg-[#8B5CF6] text-white shadow-xs font-semibold'
+                        ? 'bg-amber-400 text-stone-950 font-bold'
                         : 'text-gray-400 hover:text-white'
                     }`}
                     title="Interactive Diagram Graph View"

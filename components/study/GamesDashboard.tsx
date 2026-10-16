@@ -20,6 +20,14 @@ import {
   BarChart3,
   Search,
   Filter,
+  History,
+  User,
+  ChevronsLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  BookOpen,
+  Zap,
 } from 'lucide-react';
 import { Chess } from 'chess.js';
 import type { Repertoire, ImportedGame, DeviationReport, FSRSCard } from '@/types/chess';
@@ -381,10 +389,10 @@ export default function GamesDashboard({
       {/* ========================================================================= */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
-          {/* Mascot Penguin with Scarf */}
-          <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-700 via-sky-600 to-teal-500 shadow-xl border border-white/10 shrink-0">
-            <span className="text-2xl select-none">🐧</span>
-            <div className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-400 border-2 border-[#0B0F17]" />
+          {/* Header Icon */}
+          <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-[#141B29] border border-white/10 shrink-0">
+            <History className="h-5 w-5 text-amber-400" />
+            <div className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-emerald-400 border-2 border-[#0B0F17]" />
           </div>
 
           <div>
@@ -402,7 +410,7 @@ export default function GamesDashboard({
             type="button"
             onClick={syncGames}
             disabled={isSyncing}
-            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-colors active:scale-[0.98] cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 text-gray-300 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
             <span>Sync</span>
@@ -412,7 +420,7 @@ export default function GamesDashboard({
           <button
             type="button"
             onClick={() => setShowPgnModal(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-colors active:scale-[0.98] cursor-pointer"
           >
             <Upload className="h-3.5 w-3.5 text-gray-300" />
             <span>Import PGN</span>
@@ -423,7 +431,7 @@ export default function GamesDashboard({
             <button
               type="button"
               onClick={() => setShowAccountsDropdown(!showAccountsDropdown)}
-              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition-colors active:scale-[0.98] cursor-pointer"
             >
               <Settings2 className="h-3.5 w-3.5 text-gray-300" />
               <span>Accounts</span>
@@ -607,7 +615,7 @@ export default function GamesDashboard({
       {/* ========================================================================= */}
       {/* GAMES TABLE LIST (SCREENSHOT 3) */}
       {/* ========================================================================= */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#141B29]/90 backdrop-blur-md overflow-hidden shadow-xl">
+      <div className="rounded-2xl border border-white/[0.08] bg-[#141B29] overflow-hidden">
         {/* Table Header */}
         <div className="grid grid-cols-12 gap-3 px-5 py-3 text-[0.65rem] font-bold tracking-wider uppercase text-gray-500 border-b border-white/[0.06]">
           <span className="col-span-4">PLAYERS</span>
@@ -646,7 +654,7 @@ export default function GamesDashboard({
                   <div className="col-span-4 flex items-center gap-3">
                     {/* Time control & Platform badge */}
                     <div className="text-center w-14 shrink-0">
-                      <span className="block text-amber-400 text-xs">⚡</span>
+                      <Zap className="h-3 w-3 text-amber-400 mx-auto mb-0.5" />
                       <span className="block text-[0.65rem] font-bold text-gray-300">
                         {game.timeControl || '5 min'}
                       </span>
@@ -707,31 +715,36 @@ export default function GamesDashboard({
                       </span>
                     ) : (
                       <>
-                        <span className="text-xs font-bold text-white truncate max-w-[140px]" title={game.repertoireMatch?.repertoireName}>
-                          📖 {game.repertoireMatch?.repertoireName}
+                        <span className="text-xs font-bold text-white truncate max-w-[140px] flex items-center" title={game.repertoireMatch?.repertoireName}>
+                          <BookOpen className="h-3 w-3 text-amber-400 shrink-0 inline mr-1" />
+                          <span className="truncate">{game.repertoireMatch?.repertoireName}</span>
                         </span>
 
                         {game.repertoireMatch?.status === 'opp-off-book' && (
                           <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[0.62rem] font-semibold text-amber-300 border border-amber-500/30">
-                            💡 Opp. off-book
+                            <Lightbulb className="h-3 w-3 text-amber-300 shrink-0" />
+                            <span>Opp. off-book</span>
                           </span>
                         )}
 
                         {game.repertoireMatch?.status === 'mistake' && (
                           <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[0.62rem] font-semibold text-rose-400 border border-rose-500/30">
-                            ⚠ Mistake
+                            <AlertTriangle className="h-3 w-3 text-rose-400 shrink-0" />
+                            <span>Mistake</span>
                           </span>
                         )}
 
                         {game.repertoireMatch?.status === 'deviated' && (
                           <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[0.62rem] font-semibold text-amber-400 border border-amber-500/30">
-                            ⚠ Deviated
+                            <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+                            <span>Deviated</span>
                           </span>
                         )}
 
                         {game.repertoireMatch?.isTrained && (
                           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[0.62rem] font-semibold text-emerald-400 border border-emerald-500/30">
-                            ✓ Trained
+                            <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />
+                            <span>Trained</span>
                           </span>
                         )}
                       </>
@@ -752,7 +765,7 @@ export default function GamesDashboard({
                           setActivePreviewGame(game);
                           setPreviewPly(game.repertoireMatch?.deviationPly || 0);
                         }}
-                        className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-all cursor-pointer shadow-xs"
+                        className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors cursor-pointer"
                       >
                         <BarChart3 className="h-3.5 w-3.5 text-amber-400" />
                         <span>View analysis</span>
@@ -764,7 +777,7 @@ export default function GamesDashboard({
                           setActivePreviewGame(game);
                           setPreviewPly(0);
                         }}
-                        className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 px-3 py-1.5 text-xs font-bold text-[#0B0F17] transition-all shadow-md active:scale-[0.98] cursor-pointer"
+                        className="flex items-center gap-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 transition-colors active:scale-[0.98] cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" />
                         <span>View game</span>
@@ -880,13 +893,13 @@ export default function GamesDashboard({
                   {/* Option 3: By Name */}
                   <div
                     onClick={() => setImportSide('by_name')}
-                    className={`rounded-xl border p-3 text-center cursor-pointer transition-all ${
+                    className={`rounded-xl border p-3 text-center cursor-pointer transition-colors ${
                       importSide === 'by_name'
-                        ? 'border-amber-400 bg-amber-400/10 text-white shadow-xs'
+                        ? 'border-amber-400 bg-amber-400/10 text-white'
                         : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20'
                     }`}
                   >
-                    <div className="mx-auto mb-1 flex items-center justify-center text-xs">👤</div>
+                    <User className="mx-auto mb-1 h-3.5 w-3.5 text-gray-300" />
                     <span className="block text-xs font-bold text-white">By name</span>
                     <span className="block text-[0.62rem] text-gray-400">From the players</span>
                   </div>
@@ -906,7 +919,7 @@ export default function GamesDashboard({
                   type="button"
                   onClick={handleImportPgn}
                   disabled={!importPgnText.trim()}
-                  className="rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-50 px-6 py-2.5 text-xs font-bold text-black shadow-lg transition-transform active:scale-[0.98] cursor-pointer"
+                  className="rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-50 px-6 py-2.5 text-xs font-bold text-stone-950 transition-colors active:scale-[0.98] cursor-pointer"
                 >
                   Import
                 </button>
@@ -966,16 +979,18 @@ export default function GamesDashboard({
                     <button
                       type="button"
                       onClick={() => setPreviewPly(0)}
-                      className="rounded bg-white/10 px-2 py-1 text-xs text-gray-300 hover:text-white"
+                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                      title="First move"
                     >
-                      ⏮
+                      <ChevronsLeft className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setPreviewPly((p) => Math.max(0, p - 1))}
-                      className="rounded bg-white/10 px-2.5 py-1 text-xs text-gray-300 hover:text-white"
+                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                      title="Previous move"
                     >
-                      ◀
+                      <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
                     <span className="px-2 text-xs font-mono text-gray-400">
                       Ply {previewPly} / {previewPositions.length - 1}
@@ -983,16 +998,18 @@ export default function GamesDashboard({
                     <button
                       type="button"
                       onClick={() => setPreviewPly((p) => Math.min(previewPositions.length - 1, p + 1))}
-                      className="rounded bg-white/10 px-2.5 py-1 text-xs text-gray-300 hover:text-white"
+                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                      title="Next move"
                     >
-                      ▶
+                      <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setPreviewPly(previewPositions.length - 1)}
-                      className="rounded bg-white/10 px-2 py-1 text-xs text-gray-300 hover:text-white"
+                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                      title="Last move"
                     >
-                      ⏭
+                      <ChevronsRight className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>

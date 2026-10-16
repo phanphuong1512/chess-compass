@@ -13,6 +13,7 @@ import {
   Award,
   Crown,
   Flame,
+  Zap,
   ChevronDown,
   LogOut,
   User as UserIcon,
@@ -74,9 +75,9 @@ export default function StudySidebar({
         {/* Brand / Logo */}
         <div className="p-4 pt-5 pb-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 group cursor-pointer">
-            {/* Golden Compass / Knight Icon */}
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 text-[#0B0F17] shadow-md group-hover:scale-105 transition-transform font-bold text-lg">
-              🧭
+            {/* Golden Compass Icon */}
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-stone-950 group-hover:bg-amber-300 transition-colors">
+              <Compass className="h-5 w-5" />
             </div>
             <span className="text-lg font-extrabold tracking-tight text-white group-hover:text-amber-300 transition-colors">
               Chess Compass
@@ -110,9 +111,9 @@ export default function StudySidebar({
                     onSelectTab(item.id);
                     onCloseMobile?.();
                   }}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors duration-150 cursor-pointer ${
                     isActive
-                      ? 'bg-white/10 text-white shadow-xs font-bold'
+                      ? 'bg-white/10 text-white font-bold'
                       : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
                   }`}
                 >
@@ -142,9 +143,9 @@ export default function StudySidebar({
                     onSelectTab(item.id);
                     onCloseMobile?.();
                   }}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors duration-150 cursor-pointer ${
                     isActive
-                      ? 'bg-white/10 text-white shadow-xs font-bold'
+                      ? 'bg-white/10 text-white font-bold'
                       : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
                   }`}
                 >
@@ -164,16 +165,17 @@ export default function StudySidebar({
         {/* Variations Counter Meter */}
         <div className="rounded-xl bg-white/5 p-2.5 border border-white/5">
           <div className="flex items-center justify-between text-[0.68rem] text-gray-400 mb-1.5 font-medium">
-            <span className="flex items-center gap-1">
-              <span className="text-amber-400">⚡</span> Variations
+            <span className="flex items-center gap-1.5">
+              <Zap className="h-3 w-3 text-amber-400" />
+              <span>Variations</span>
             </span>
-            <span className="font-mono text-gray-300">
+            <span className="tabular-nums text-gray-300">
               {learnedVariationsCount} / {totalVariationsCap}
             </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-400 transition-all duration-500"
+              className="h-full rounded-full bg-emerald-500 transition-[width] duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -183,7 +185,7 @@ export default function StudySidebar({
         <button
           type="button"
           onClick={() => {}}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 px-3 py-2 text-xs font-bold text-[#0B0F17] shadow-md hover:from-amber-300 hover:to-yellow-400 transition-all cursor-pointer active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 px-3 py-2 text-xs font-bold text-stone-950 transition-colors duration-150 cursor-pointer active:scale-[0.98]"
         >
           <Crown className="h-3.5 w-3.5" />
           <span>Unlimited with Premium</span>
@@ -194,7 +196,7 @@ export default function StudySidebar({
           <button
             type="button"
             onClick={loginWithGoogle}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white text-gray-900 px-3 py-2.5 text-xs font-bold shadow-md hover:bg-gray-100 transition-all cursor-pointer active:scale-[0.98]"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white text-gray-900 px-3 py-2.5 text-xs font-bold hover:bg-gray-100 transition-colors duration-150 cursor-pointer active:scale-[0.98]"
           >
             <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
               <path

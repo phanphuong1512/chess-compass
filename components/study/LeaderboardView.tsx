@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
 import { useAuth } from '@/lib/auth/useAuth';
-import { Trophy, Flame, Crown, Medal, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
+import { Trophy, Flame, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface LeaderboardUser {
   rank: number;
@@ -19,17 +19,17 @@ interface LeaderboardUser {
 }
 
 const PEER_PLAYERS: LeaderboardUser[] = [
-  { rank: 1, username: 'GrandmasterFlow', avatar: '♔', xp: 14250, streak: 18, level: 8, leagueZone: 'promote' },
-  { rank: 2, username: 'SicilianSlayer', avatar: '♘', xp: 12890, streak: 12, level: 7, leagueZone: 'promote' },
-  { rank: 3, username: 'DeepStockfishWasm', avatar: '♖', xp: 11450, streak: 9, level: 6, leagueZone: 'promote' },
-  { rank: 4, username: 'CaroKannKing', avatar: '♗', xp: 9800, streak: 14, level: 6, leagueZone: 'promote' },
-  { rank: 5, username: 'EndgameOracle', avatar: '♕', xp: 8950, streak: 7, level: 5, leagueZone: 'promote' },
-  { rank: 6, username: 'NimzoKnight', avatar: '♙', xp: 8200, streak: 5, level: 5, leagueZone: 'safe' },
-  { rank: 7, username: 'TacticsNinja', avatar: '♘', xp: 7800, streak: 4, level: 5, leagueZone: 'safe' },
-  { rank: 15, username: 'PawnPusher99', avatar: '♙', xp: 5400, streak: 2, level: 3, leagueZone: 'safe' },
-  { rank: 28, username: 'BlunderCheck', avatar: '♟', xp: 2100, streak: 0, level: 2, leagueZone: 'relegate' },
-  { rank: 29, username: 'RookLifter', avatar: '♖', xp: 1850, streak: 0, level: 2, leagueZone: 'relegate' },
-  { rank: 30, username: 'CheckmateGhost', avatar: '♚', xp: 1200, streak: 0, level: 1, leagueZone: 'relegate' },
+  { rank: 1, username: 'GrandmasterFlow', avatar: 'GF', xp: 14250, streak: 18, level: 8, leagueZone: 'promote' },
+  { rank: 2, username: 'SicilianSlayer', avatar: 'SS', xp: 12890, streak: 12, level: 7, leagueZone: 'promote' },
+  { rank: 3, username: 'DeepStockfishWasm', avatar: 'DS', xp: 11450, streak: 9, level: 6, leagueZone: 'promote' },
+  { rank: 4, username: 'CaroKannKing', avatar: 'CK', xp: 9800, streak: 14, level: 6, leagueZone: 'promote' },
+  { rank: 5, username: 'EndgameOracle', avatar: 'EO', xp: 8950, streak: 7, level: 5, leagueZone: 'promote' },
+  { rank: 6, username: 'NimzoKnight', avatar: 'NK', xp: 8200, streak: 5, level: 5, leagueZone: 'safe' },
+  { rank: 7, username: 'TacticsNinja', avatar: 'TN', xp: 7800, streak: 4, level: 5, leagueZone: 'safe' },
+  { rank: 15, username: 'PawnPusher99', avatar: 'PP', xp: 5400, streak: 2, level: 3, leagueZone: 'safe' },
+  { rank: 28, username: 'BlunderCheck', avatar: 'BC', xp: 2100, streak: 0, level: 2, leagueZone: 'relegate' },
+  { rank: 29, username: 'RookLifter', avatar: 'RL', xp: 1850, streak: 0, level: 2, leagueZone: 'relegate' },
+  { rank: 30, username: 'CheckmateGhost', avatar: 'CG', xp: 1200, streak: 0, level: 1, leagueZone: 'relegate' },
 ];
 
 export default function LeaderboardView() {
@@ -53,7 +53,7 @@ export default function LeaderboardView() {
     const streak = Math.max(1, puzzleStreak || (reviewLogs.length > 0 ? 2 : 1));
 
     const username = user?.name || 'You (Guest)';
-    const avatar = '🧭';
+    const avatar = username.slice(0, 2).toUpperCase();
     const avatarUrl = user?.picture;
 
     return {
@@ -81,32 +81,32 @@ export default function LeaderboardView() {
   const userStanding = leaderboardList.find((u) => u.isCurrentUser) || currentUserData;
 
   return (
-    <div className="w-full min-h-[calc(100vh-3.5rem)] bg-[#0B0F17] p-6 lg:p-8 space-y-6">
+    <div className="w-full min-h-[calc(100dvh-3.5rem)] bg-[#0B0F17] p-6 lg:p-8 space-y-6">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Banner */}
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-r from-indigo-900/40 via-purple-900/30 to-amber-900/30 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 backdrop-blur-md">
+        <div className="rounded-2xl border border-white/10 bg-[#121724] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-black font-extrabold text-2xl shadow-lg">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-400/10 text-amber-400 font-extrabold text-2xl">
               <Trophy className="h-6 w-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[0.65rem] font-bold text-amber-300 border border-amber-400/30">
+                <span className="rounded-md bg-amber-400/10 px-2 py-0.5 text-[0.68rem] font-bold text-amber-400">
                   DIAMOND LEAGUE
                 </span>
                 <span className="text-xs text-gray-400">Weekly Season</span>
               </div>
-              <h2 className="text-xl font-extrabold text-white mt-1">Community Leaderboard</h2>
+              <h2 className="text-xl font-bold text-white mt-1 tracking-tight">Community Leaderboard</h2>
               <p className="text-xs text-gray-400">
-                Top 5 players promote to Master League based on actual study & training XP.
+                Top 5 players promote to Master League based on study & training XP.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <span className="text-[0.65rem] text-gray-400 block uppercase tracking-wider font-bold">Your Standing</span>
-              <span className="text-lg font-black text-white font-mono">
+              <span className="text-[0.68rem] text-gray-400 block font-medium">Your Standing</span>
+              <span className="text-lg font-bold text-white tabular-nums">
                 #{userStanding.rank} · {userStanding.xp.toLocaleString()} XP
               </span>
             </div>
@@ -114,15 +114,15 @@ export default function LeaderboardView() {
         </div>
 
         {/* Standings Table */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#111726] shadow-xl overflow-hidden">
+        <div className="rounded-2xl border border-white/[0.08] bg-[#111726] overflow-hidden">
           <div className="p-4 border-b border-white/5 flex items-center justify-between text-xs text-gray-400">
-            <span className="font-bold uppercase tracking-wider text-[0.65rem]">Weekly Ranks</span>
-            <div className="flex items-center gap-4 text-[0.7rem]">
-              <span className="flex items-center gap-1 text-emerald-400">
-                <ArrowUp className="h-3 w-3" /> Promotion Zone (Top 5)
+            <span className="font-semibold text-xs text-gray-300">Weekly Standings</span>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                <ArrowUp className="h-3 w-3" /> Promotion (Top 5)
               </span>
-              <span className="flex items-center gap-1 text-rose-400">
-                <ArrowDown className="h-3 w-3" /> Relegation Zone (Bottom 3)
+              <span className="flex items-center gap-1 text-rose-400 font-medium">
+                <ArrowDown className="h-3 w-3" /> Relegation (Bottom 3)
               </span>
             </div>
           </div>
@@ -132,7 +132,7 @@ export default function LeaderboardView() {
               return (
                 <div
                   key={`${player.username}-${player.rank}`}
-                  className={`flex items-center justify-between p-4 transition-colors ${
+                  className={`flex items-center justify-between p-4 transition-colors duration-150 ${
                     player.isCurrentUser
                       ? 'bg-amber-400/10 border-l-4 border-amber-400'
                       : 'hover:bg-white/[0.02]'
@@ -140,15 +140,21 @@ export default function LeaderboardView() {
                 >
                   <div className="flex items-center gap-4">
                     {/* Rank badge */}
-                    <div className="w-8 text-center font-mono font-bold text-sm">
+                    <div className="w-8 flex items-center justify-center font-bold text-sm">
                       {player.rank === 1 ? (
-                        <span className="text-amber-400 text-base">🥇</span>
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-stone-950 font-bold text-xs">
+                          1
+                        </span>
                       ) : player.rank === 2 ? (
-                        <span className="text-gray-300 text-base">🥈</span>
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-300 text-stone-950 font-bold text-xs">
+                          2
+                        </span>
                       ) : player.rank === 3 ? (
-                        <span className="text-amber-600 text-base">🥉</span>
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-700 text-white font-bold text-xs">
+                          3
+                        </span>
                       ) : (
-                        <span className={player.isCurrentUser ? 'text-amber-300' : 'text-gray-400'}>
+                        <span className={`tabular-nums ${player.isCurrentUser ? 'text-amber-300' : 'text-gray-400'}`}>
                           #{player.rank}
                         </span>
                       )}
@@ -163,7 +169,7 @@ export default function LeaderboardView() {
                         className="h-9 w-9 rounded-xl object-cover border border-amber-400/30"
                       />
                     ) : (
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white font-bold text-sm">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white font-bold text-xs">
                         {player.avatar}
                       </div>
                     )}
@@ -175,7 +181,7 @@ export default function LeaderboardView() {
                           {player.username}
                         </span>
                         {player.isCurrentUser && (
-                          <span className="rounded-full bg-amber-400/20 px-1.5 py-0.2 text-[0.6rem] font-bold text-amber-300">
+                          <span className="rounded-md bg-amber-400/20 px-1.5 py-0.2 text-[0.65rem] font-bold text-amber-300">
                             YOU
                           </span>
                         )}
@@ -188,13 +194,13 @@ export default function LeaderboardView() {
 
                   {/* XP & Streak */}
                   <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-1 text-orange-400 text-xs font-bold font-mono">
+                    <div className="flex items-center gap-1 text-orange-400 text-xs font-bold tabular-nums">
                       <Flame className="h-3.5 w-3.5" />
                       <span>{player.streak}</span>
                     </div>
 
-                    <div className="w-24 text-right font-mono font-bold text-sm text-white">
-                      {player.xp.toLocaleString()} <span className="text-[0.65rem] text-gray-500">XP</span>
+                    <div className="w-24 text-right tabular-nums font-bold text-sm text-white">
+                      {player.xp.toLocaleString()} <span className="text-xs text-gray-500 font-normal">XP</span>
                     </div>
                   </div>
                 </div>
