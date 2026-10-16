@@ -85,6 +85,8 @@ function getLocalNodeSqlite(): D1DatabaseLike | null {
   }
 }
 
+import { getCloudflareContext } from '@opennextjs/cloudflare';
+
 /**
  * Returns the Cloudflare D1 Database instance, supporting both:
  * 1. Cloudflare Workers environment (@opennextjs/cloudflare getCloudflareContext().env.DB)
@@ -92,14 +94,10 @@ function getLocalNodeSqlite(): D1DatabaseLike | null {
  */
 export async function getD1Database(): Promise<D1DatabaseLike | null> {
   try {
+    const { env } = await getCloudflareContext({ async: true });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const openNext: any = await (Function('return import("@opennextjs/cloudflare")')() as Promise<any>).catch(() => null);
-    if (openNext?.getCloudflareContext) {
-      const { env } = await openNext.getCloudflareContext();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d1 = (env as any)?.DB as D1DatabaseLike | undefined;
-      if (d1) return d1;
-    }
+    const d1 = (env as any)?.DB as D1DatabaseLike | undefined;
+    if (d1) return d1;
   } catch {
     // Running outside Cloudflare context (e.g. Next.js dev server, Node, Vercel)
   }

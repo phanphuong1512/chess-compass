@@ -11,6 +11,8 @@ export interface AuthUser {
 const DEFAULT_SECRET = '9f1a238b7e2c45d6a89c10f34e56b789123456789abcdef0123456789abcdef0';
 export const COOKIE_NAME = 'cc_session';
 
+import { getCloudflareContext } from '@opennextjs/cloudflare';
+
 export async function getAuthConfig() {
   let clientId = process.env.GOOGLE_CLIENT_ID;
   let clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -18,14 +20,10 @@ export async function getAuthConfig() {
 
   if (!clientId || !clientSecret) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const openNext: any = await (Function('return import("@opennextjs/cloudflare")')() as Promise<any>).catch(() => null);
-      if (openNext?.getCloudflareContext) {
-        const { env } = await openNext.getCloudflareContext();
-        clientId = clientId || (env as any)?.GOOGLE_CLIENT_ID;
-        clientSecret = clientSecret || (env as any)?.GOOGLE_CLIENT_SECRET;
-        authSecret = authSecret || (env as any)?.AUTH_SECRET || DEFAULT_SECRET;
-      }
+      const { env } = await getCloudflareContext({ async: true });
+      clientId = clientId || (env as any)?.GOOGLE_CLIENT_ID;
+      clientSecret = clientSecret || (env as any)?.GOOGLE_CLIENT_SECRET;
+      authSecret = authSecret || (env as any)?.AUTH_SECRET || DEFAULT_SECRET;
     } catch {
       // Ignore if not in Cloudflare context
     }
