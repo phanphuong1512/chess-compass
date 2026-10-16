@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "chess-compass",
+  "account_id": "7bd92a7e7133e70ff949a50c03f21e0a",
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-02-01",
   "compatibility_flags": [
