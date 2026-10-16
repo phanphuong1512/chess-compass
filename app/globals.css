@@ -27,7 +27,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Taste Skill: Sleek subtle scrollbars instead of default heavy browser bars */
+/* Taste Skill & Impeccable: Sleek subtle scrollbars instead of default heavy browser bars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -45,3 +45,23 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.24);
 }
+
+/* Impeccable Craft Floor: Themed browser surfaces */
+::selection {
+  background-color: #F59E0B;
+  color: #0B0F17;
+}
+
+input, textarea {
+  caret-color: #F59E0B;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(245, 158, 11, 0.6);
+  outline-offset: 2px;
+}
+
+h1, h2, h3, h4 {
+  text-wrap: balance;
+}
+

@@ -134,7 +134,7 @@ export default function LeaderboardView() {
                   key={`${player.username}-${player.rank}`}
                   className={`flex items-center justify-between p-4 transition-colors duration-150 ${
                     player.isCurrentUser
-                      ? 'bg-amber-400/10 border-l-4 border-amber-400'
+                      ? 'bg-amber-400/10 ring-1 ring-inset ring-amber-400/20'
                       : 'hover:bg-white/[0.02]'
                   }`}
                 >
