@@ -1,0 +1,772 @@
+'use client';
+
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  X,
+  Volume2,
+  VolumeX,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Play,
+  Pause,
+  RotateCcw,
+  Sparkles,
+  Lightbulb,
+  CheckCircle2,
+  AlertTriangle,
+  BookOpen,
+  Plus,
+  BarChart3,
+  List,
+  Eye,
+  HelpCircle,
+} from 'lucide-react';
+import { Chess, type Square } from 'chess.js';
+import type { ImportedGame, Repertoire } from '@/types/chess';
+import type { RepertoireDAG } from '@/lib/chess/dag';
+import { fenToNodeId } from '@/lib/chess/dag';
+import {
+  analyzeFullGame,
+  type GameReviewResult,
+  type MoveReviewItem,
+  type MoveClassification,
+  CLASSIFICATION_META,
+} from '@/lib/chess/gameReview';
+import ChessBoard from './ChessBoard';
+import { playMoveSound, playCaptureSound, playCheckSound } from '@/lib/chess/audio';
+
+interface GameReviewModalProps {
+  game: ImportedGame;
+  userColor?: 'white' | 'black';
+  dag?: RepertoireDAG;
+  activeRepertoire?: Repertoire | null;
+  onClose: () => void;
+  onAddToTraining?: (nodeId: string) => void;
+}
+
+export default function GameReviewModal({
+  game,
+  userColor = 'white',
+  dag,
+  activeRepertoire,
+  onClose,
+  onAddToTraining,
+}: GameReviewModalProps) {
+  // Mode: 'summary' (Report Card) or 'review' (Move by Move)
+  const [viewMode, setViewMode] = useState<'summary' | 'review'>('summary');
+  const [currentPly, setCurrentPly] = useState(0);
+  const [showBestMove, setShowBestMove] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>(userColor);
+
+  const moveListRef = useRef<HTMLDivElement>(null);
+  const activeMoveButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Analyze the game once with our full Game Review engine
+  const reviewResult: GameReviewResult = useMemo(() => {
+    return analyzeFullGame(game.pgn, userColor, dag, activeRepertoire ?? undefined);
+  }, [game.pgn, userColor, dag, activeRepertoire]);
+
+  const totalPlies = reviewResult.positions.length - 1;
+  const currentFen = reviewResult.positions[currentPly] || reviewResult.positions[0];
+  const currentMove: MoveReviewItem | undefined =
+    currentPly > 0 ? reviewResult.moves[currentPly - 1] : undefined;
+
+  // Auto-scroll the move list when current ply changes
+  useEffect(() => {
+    if (activeMoveButtonRef.current && moveListRef.current) {
+      activeMoveButtonRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [currentPly]);
+
+  // Keyboard navigation (Left, Right, Space)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setCurrentPly((p) => Math.max(0, p - 1));
+        setShowBestMove(false);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setCurrentPly((p) => Math.min(totalPlies, p + 1));
+        setShowBestMove(false);
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        setIsPlaying((p) => !p);
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [totalPlies, onClose]);
+
+  // Auto-play interval
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setCurrentPly((prev) => {
+        if (prev >= totalPlies) {
+          setIsPlaying(false);
+          return prev;
+        }
+        if (soundEnabled) playMoveSound();
+        return prev + 1;
+      });
+    }, 1400);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, totalPlies, soundEnabled]);
+
+  // Construct arrows for ChessBoard:
+  // - Played mistake/blunder move: red arrow
+  // - Best move recommendation (when showBestMove is active): green arrow
+  const arrows = useMemo(() => {
+    const list: Array<{ from: string; to: string; color: string }> = [];
+    if (!currentMove) return list;
+
+    if (
+      showBestMove &&
+      currentMove.bestMove &&
+      (currentMove.bestMove.from !== currentMove.from || currentMove.bestMove.to !== currentMove.to)
+    ) {
+      list.push({
+        from: currentMove.bestMove.from,
+        to: currentMove.bestMove.to,
+        color: '#10B981', // green arrow for best move
+      });
+    }
+
+    if (currentMove.classification === 'blunder' || currentMove.classification === 'mistake') {
+      list.push({
+        from: currentMove.from,
+        to: currentMove.to,
+        color: '#EF4444', // red arrow for blunder
+      });
+    }
+
+    return list;
+  }, [currentMove, showBestMove]);
+
+  const lastMoveHighlight = useMemo(() => {
+    if (!currentMove) return null;
+    return { from: currentMove.from, to: currentMove.to };
+  }, [currentMove]);
+
+  // Classification ordering
+  const classificationOrder: MoveClassification[] = [
+    'brilliant',
+    'great',
+    'best',
+    'excellent',
+    'good',
+    'book',
+    'inaccuracy',
+    'mistake',
+    'miss',
+    'blunder',
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-6 overflow-hidden select-none">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        className="relative w-full max-w-[1180px] h-[92vh] max-h-[880px] rounded-2xl border border-white/10 bg-[#121724] text-white flex flex-col shadow-2xl overflow-hidden"
+      >
+        {/* ========================================================================= */}
+        {/* TOP MODAL BAR: Title, Mode Tabs, Sound, Flip & Close */}
+        {/* ========================================================================= */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08] bg-[#0E131E] shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-400 text-stone-950 font-bold text-xs">
+              <Eye className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                Game Review
+                <span className="text-xs font-normal text-gray-400">·</span>
+                <span className="text-xs font-mono font-medium text-gray-300">
+                  {game.white} vs {game.black} ({game.result})
+                </span>
+              </h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* View Mode Toggle: Summary Report vs Move Review */}
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-0.5 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setViewMode('summary')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                  viewMode === 'summary'
+                    ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                <span>Report</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('review')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                  viewMode === 'review'
+                    ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <List className="h-3.5 w-3.5" />
+                <span>Review</span>
+              </button>
+            </div>
+
+            {/* Sound Toggle */}
+            <button
+              type="button"
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors cursor-pointer"
+              title={soundEnabled ? 'Mute audio' : 'Enable audio'}
+            >
+              {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </button>
+
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors cursor-pointer ml-1"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* BODY CONTENT: SWITCH BETWEEN SUMMARY AND MOVE-BY-MOVE REVIEW */}
+        {/* ========================================================================= */}
+        <div className="flex-1 overflow-hidden">
+          {viewMode === 'summary' ? (
+            /* =================================================================== */
+            /* 1. REPORT CARD / SUMMARY VIEW (SCREENSHOT 1 & 2)                    */
+            /* =================================================================== */
+            <div className="h-full overflow-y-auto p-6 space-y-6">
+              {/* Coach Speech Bubble */}
+              <div className="flex items-start gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/10 max-w-3xl mx-auto">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/20 text-amber-400 text-xl font-bold shrink-0">
+                  🐱
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                    Grandmaster Coach
+                  </span>
+                  <p className="text-sm text-gray-200 leading-relaxed">
+                    {reviewResult.summaryComment} Let us explore the pivotal acts and critical
+                    tactical moments that shaped the outcome.
+                  </p>
+                </div>
+              </div>
+
+              {/* Player Accuracies Card */}
+              <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto">
+                {/* White Player */}
+                <div className="rounded-xl border border-white/10 bg-[#161D2C] p-4 text-center space-y-2">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="h-3 w-3 rounded-full border border-gray-400 bg-white" />
+                    <span className="text-sm font-bold text-white truncate max-w-[160px]">
+                      {game.white}
+                    </span>
+                    {game.whiteRating && (
+                      <span className="text-xs text-gray-400">({game.whiteRating})</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-3xl font-extrabold text-white font-mono tabular-nums">
+                      {reviewResult.whiteAccuracy}%
+                    </span>
+                    <span className="block text-[0.68rem] uppercase font-bold text-gray-400 mt-0.5">
+                      White Accuracy
+                    </span>
+                  </div>
+                </div>
+
+                {/* Black Player */}
+                <div className="rounded-xl border border-white/10 bg-[#161D2C] p-4 text-center space-y-2">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="h-3 w-3 rounded-full border border-gray-400 bg-transparent" />
+                    <span className="text-sm font-bold text-white truncate max-w-[160px]">
+                      {game.black}
+                    </span>
+                    {game.blackRating && (
+                      <span className="text-xs text-gray-400">({game.blackRating})</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-3xl font-extrabold text-white font-mono tabular-nums">
+                      {reviewResult.blackAccuracy}%
+                    </span>
+                    <span className="block text-[0.68rem] uppercase font-bold text-gray-400 mt-0.5">
+                      Black Accuracy
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Move Classification Breakdown Table */}
+              <div className="max-w-3xl mx-auto rounded-xl border border-white/10 bg-[#161D2C] overflow-hidden">
+                <div className="grid grid-cols-3 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-white/[0.08]">
+                  <span className="text-center">{game.white}</span>
+                  <span className="text-center">Move Classification</span>
+                  <span className="text-center">{game.black}</span>
+                </div>
+
+                <div className="divide-y divide-white/[0.04]">
+                  {classificationOrder.map((cat) => {
+                    const meta = CLASSIFICATION_META[cat];
+                    const whiteCount = reviewResult.counts.white[cat];
+                    const blackCount = reviewResult.counts.black[cat];
+
+                    return (
+                      <div
+                        key={cat}
+                        className="grid grid-cols-3 px-5 py-2.5 items-center hover:bg-white/[0.02] text-xs font-semibold"
+                      >
+                        {/* White count */}
+                        <div className="text-center font-mono tabular-nums font-bold text-white">
+                          {whiteCount > 0 ? (
+                            <span className={whiteCount > 0 ? meta.textColor : 'text-gray-500'}>
+                              {whiteCount}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600">0</span>
+                          )}
+                        </div>
+
+                        {/* Category Label with Badge */}
+                        <div className="flex items-center justify-center gap-2">
+                          <span
+                            className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[0.65rem] font-bold border ${meta.badgeBg} ${meta.textColor}`}
+                          >
+                            {meta.short}
+                          </span>
+                          <span className="text-gray-300 font-medium">{meta.label}</span>
+                        </div>
+
+                        {/* Black count */}
+                        <div className="text-center font-mono tabular-nums font-bold text-white">
+                          {blackCount > 0 ? (
+                            <span className={blackCount > 0 ? meta.textColor : 'text-gray-500'}>
+                              {blackCount}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600">0</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Primary CTA: Start Review */}
+              <div className="max-w-3xl mx-auto pt-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode('review');
+                    setCurrentPly(1);
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold px-8 py-3.5 text-sm transition-transform active:scale-[0.98] cursor-pointer shadow-lg"
+                >
+                  <Play className="h-4 w-4 fill-stone-950" />
+                  <span>Start Review</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* =================================================================== */
+            /* 2. MOVE-BY-MOVE REVIEW VIEW (SCREENSHOT 3 & 4)                      */
+            /* =================================================================== */
+            <div className="h-full grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden">
+              {/* LEFT COLUMN: Chessboard & Stepper Controls (7 cols) */}
+              <div className="lg:col-span-7 flex flex-col h-full border-r border-white/[0.08] bg-[#0E131E] p-4 sm:p-5 overflow-y-auto">
+                {/* Chessboard Container */}
+                <div className="w-full max-w-[460px] mx-auto aspect-square relative shrink-0">
+                  <ChessBoard
+                    fen={currentFen}
+                    orientation={boardOrientation}
+                    interactive={false}
+                    lastMove={lastMoveHighlight}
+                    arrows={arrows}
+                  />
+
+                  {/* Move quality badge on the destination square */}
+                  {currentMove && (
+                    <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/80 backdrop-blur-sm border border-white/10 text-xs font-bold">
+                      <span
+                        className={`h-2 w-2 rounded-full`}
+                        style={{
+                          backgroundColor: CLASSIFICATION_META[currentMove.classification].dotColor,
+                        }}
+                      />
+                      <span
+                        className={CLASSIFICATION_META[currentMove.classification].textColor}
+                      >
+                        {CLASSIFICATION_META[currentMove.classification].label} ({currentMove.san})
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Advantage Line Graph with Scrubber Cursor */}
+                <div className="mt-4 px-2">
+                  <div className="flex items-center justify-between text-[0.68rem] text-gray-400 mb-1">
+                    <span>Advantage Timeline</span>
+                    <span className="font-mono text-gray-300">
+                      Ply {currentPly} / {totalPlies}
+                    </span>
+                  </div>
+
+                  <div
+                    className="relative w-full h-10 bg-[#161D2C] rounded-lg border border-white/10 overflow-hidden cursor-pointer"
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+                      const targetPly = Math.round(percentage * totalPlies);
+                      setCurrentPly(targetPly);
+                    }}
+                  >
+                    {/* Zero center line */}
+                    <div className="absolute top-1/2 left-0 right-0 h-px bg-white/20" />
+
+                    {/* SVG Evaluation Trend Curve */}
+                    <svg className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                      <polyline
+                        fill="none"
+                        stroke="#F59E0B"
+                        strokeWidth="1.5"
+                        points={reviewResult.evalHistory
+                          .map((val, idx) => {
+                            const x = (idx / totalPlies) * 100;
+                            // Clamp cp between -600 and +600
+                            const clamped = Math.max(-600, Math.min(600, val));
+                            // Map to y (0 to 40)
+                            const y = 20 - (clamped / 600) * 18;
+                            return `${x}%,${y}`;
+                          })
+                          .join(' ')}
+                      />
+                    </svg>
+
+                    {/* Scrubber vertical line indicator */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-amber-400 pointer-events-none transition-all duration-75"
+                      style={{
+                        left: `${(currentPly / totalPlies) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Board Navigation Controls */}
+                <div className="mt-3 flex items-center justify-center gap-1.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPly(0);
+                      setShowBestMove(false);
+                    }}
+                    className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="First move (Home)"
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPly((p) => Math.max(0, p - 1));
+                      setShowBestMove(false);
+                    }}
+                    className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Previous move (Left arrow)"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsPlaying(!isPlaying)}
+                    className="rounded-lg bg-amber-400 hover:bg-amber-300 p-2 text-stone-950 font-bold transition-colors cursor-pointer px-4"
+                    title="Play / Pause walkthrough (Space)"
+                  >
+                    {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 fill-stone-950" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPly((p) => Math.min(totalPlies, p + 1));
+                      setShowBestMove(false);
+                    }}
+                    className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Next move (Right arrow)"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPly(totalPlies);
+                      setShowBestMove(false);
+                    }}
+                    className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Last move (End)"
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBoardOrientation((o) => (o === 'white' ? 'black' : 'white'))
+                    }
+                    className="ml-2 rounded-lg bg-white/5 p-2 text-gray-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Flip board"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Review Console, Coach Bubble, Action Buttons & Moves (5 cols) */}
+              <div className="lg:col-span-5 flex flex-col h-full bg-[#121724] overflow-hidden">
+                {/* 1. Coach Speech Bubble at the Top */}
+                <div className="p-4 border-b border-white/[0.08] bg-[#161D2C] shrink-0 space-y-3">
+                  {currentMove ? (
+                    <>
+                      {/* Classification Badge Tag & Eval Score */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                              CLASSIFICATION_META[currentMove.classification].badgeBg
+                            } ${CLASSIFICATION_META[currentMove.classification].textColor}`}
+                          >
+                            <span>{CLASSIFICATION_META[currentMove.classification].short}</span>
+                            <span>{currentMove.san} is {CLASSIFICATION_META[currentMove.classification].label}</span>
+                          </span>
+                        </div>
+
+                        {/* Centipawn Score */}
+                        <span className="font-mono text-xs font-bold text-gray-300">
+                          {currentMove.evalAfterCp >= 0
+                            ? `+${(currentMove.evalAfterCp / 100).toFixed(2)}`
+                            : `${(currentMove.evalAfterCp / 100).toFixed(2)}`}
+                        </span>
+                      </div>
+
+                      {/* Coach Natural Explanation */}
+                      <p className="text-xs text-gray-300 leading-relaxed font-normal">
+                        {currentMove.comment}
+                      </p>
+
+                      {/* Expandable Deep Tactical Explanation */}
+                      {showExplanation && (
+                        <div className="mt-2 p-2.5 rounded-lg bg-white/5 text-[0.72rem] text-gray-300 border border-white/5 leading-normal">
+                          {currentMove.tacticalExplanation}
+                        </div>
+                      )}
+
+                      {/* Best Move Box when toggled */}
+                      {showBestMove && currentMove.bestMove && (
+                        <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-xs text-emerald-300 space-y-1">
+                          <div className="flex items-center justify-between font-bold">
+                            <span>Engine Recommendation:</span>
+                            <span className="font-mono">{currentMove.bestMove.san}</span>
+                          </div>
+                          <p className="text-[0.7rem] text-emerald-200/80">
+                            Playing {currentMove.bestMove.san} keeps the advantage at{' '}
+                            {currentMove.bestMove.evalCp >= 0 ? '+' : ''}
+                            {(currentMove.bestMove.evalCp / 100).toFixed(2)}.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Action Buttons: Explain, Best, Next */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowExplanation(!showExplanation)}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                            showExplanation
+                              ? 'bg-amber-400 text-stone-950 border-amber-400 font-bold'
+                              : 'bg-white/5 border-white/10 text-gray-300 hover:text-white hover:bg-white/10'
+                          }`}
+                        >
+                          <Lightbulb className="h-3.5 w-3.5" />
+                          <span>Explain</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowBestMove(!showBestMove)}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                            showBestMove
+                              ? 'bg-emerald-500 text-stone-950 border-emerald-500 font-bold'
+                              : 'bg-white/5 border-white/10 text-gray-300 hover:text-white hover:bg-white/10'
+                          }`}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span>Best Move</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentPly((p) => Math.min(totalPlies, p + 1));
+                            setShowBestMove(false);
+                            if (soundEnabled) playMoveSound();
+                          }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Add to FSRS Training Queue for Mistakes / Blunders */}
+                      {(currentMove.classification === 'blunder' ||
+                        currentMove.classification === 'mistake') &&
+                        onAddToTraining && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nodeId = fenToNodeId(currentMove.fenBefore);
+                              onAddToTraining(nodeId);
+                              alert('Position added to your FSRS review queue!');
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-xs font-bold text-rose-300 hover:bg-rose-500/30 transition-colors cursor-pointer"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>Add this mistake to FSRS Training Queue</span>
+                          </button>
+                        )}
+                    </>
+                  ) : (
+                    <div className="py-2 text-center text-xs text-gray-400">
+                      Starting position. Click &quot;Next&quot; or press Right Arrow to begin move review.
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Moves Notation List (Full Game Scoresheet) */}
+                <div
+                  ref={moveListRef}
+                  className="flex-1 overflow-y-auto p-3 space-y-1 divide-y divide-white/[0.03]"
+                >
+                  {Array.from({ length: Math.ceil(reviewResult.moves.length / 2) }).map(
+                    (_, moveIdx) => {
+                      const whiteMove = reviewResult.moves[moveIdx * 2];
+                      const blackMove = reviewResult.moves[moveIdx * 2 + 1];
+                      const moveNum = moveIdx + 1;
+
+                      return (
+                        <div
+                          key={moveNum}
+                          className="grid grid-cols-12 gap-1 py-1 text-xs items-center"
+                        >
+                          {/* Move number */}
+                          <span className="col-span-2 text-gray-500 font-mono font-medium pl-1">
+                            {moveNum}.
+                          </span>
+
+                          {/* White move */}
+                          <div className="col-span-5">
+                            {whiteMove && (
+                              <button
+                                ref={currentPly === whiteMove.ply + 1 ? activeMoveButtonRef : null}
+                                type="button"
+                                onClick={() => {
+                                  setCurrentPly(whiteMove.ply + 1);
+                                  setShowBestMove(false);
+                                  if (soundEnabled) playMoveSound();
+                                }}
+                                className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-left transition-colors cursor-pointer ${
+                                  currentPly === whiteMove.ply + 1
+                                    ? 'bg-amber-400 text-stone-950 font-bold'
+                                    : 'hover:bg-white/5 text-gray-200'
+                                }`}
+                              >
+                                <span className="font-semibold">{whiteMove.san}</span>
+                                <span
+                                  className={`inline-flex text-[0.65rem] font-bold ${
+                                    currentPly === whiteMove.ply + 1
+                                      ? 'text-stone-950'
+                                      : CLASSIFICATION_META[whiteMove.classification].textColor
+                                  }`}
+                                >
+                                  {CLASSIFICATION_META[whiteMove.classification].short}
+                                </span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Black move */}
+                          <div className="col-span-5">
+                            {blackMove && (
+                              <button
+                                ref={currentPly === blackMove.ply + 1 ? activeMoveButtonRef : null}
+                                type="button"
+                                onClick={() => {
+                                  setCurrentPly(blackMove.ply + 1);
+                                  setShowBestMove(false);
+                                  if (soundEnabled) playMoveSound();
+                                }}
+                                className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-left transition-colors cursor-pointer ${
+                                  currentPly === blackMove.ply + 1
+                                    ? 'bg-amber-400 text-stone-950 font-bold'
+                                    : 'hover:bg-white/5 text-gray-200'
+                                }`}
+                              >
+                                <span className="font-semibold">{blackMove.san}</span>
+                                <span
+                                  className={`inline-flex text-[0.65rem] font-bold ${
+                                    currentPly === blackMove.ply + 1
+                                      ? 'text-stone-950'
+                                      : CLASSIFICATION_META[blackMove.classification].textColor
+                                  }`}
+                                >
+                                  {CLASSIFICATION_META[blackMove.classification].short}
+                                </span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}

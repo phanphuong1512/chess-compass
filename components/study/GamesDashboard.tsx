@@ -37,6 +37,7 @@ import { RepertoireDAG, fenToNodeId, STARTING_FEN } from '@/lib/chess/dag';
 import { createCard } from '@/lib/fsrs/scheduler';
 import { db } from '@/lib/db';
 import ChessBoard from './ChessBoard';
+import GameReviewModal from './GameReviewModal';
 
 interface ConnectedAccount {
   id: string;
@@ -930,155 +931,22 @@ export default function GamesDashboard({
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* INTERACTIVE GAME VIEWER MODAL */}
+      {/* CHESS.COM STYLE FULL GAME REVIEW MODAL */}
       {/* ========================================================================= */}
       <AnimatePresence>
         {activePreviewGame && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="relative w-full max-w-[720px] rounded-2xl border border-white/10 bg-[#141B29] p-6 shadow-2xl text-white my-8"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => setActivePreviewGame(null)}
-                className="absolute top-5 right-5 text-gray-400 hover:text-white transition-colors cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-
-              <div className="mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-amber-400 font-bold uppercase tracking-wider">
-                    Game Review
-                  </span>
-                  <span className="text-xs text-gray-400">·</span>
-                  <span className="text-xs text-gray-300 font-mono">
-                    {activePreviewGame.white} vs {activePreviewGame.black} ({activePreviewGame.result})
-                  </span>
-                </div>
-                <h3 className="text-lg font-bold text-white mt-1">
-                  {activePreviewGame.repertoireMatch?.repertoireName || 'Repertoire Inspection'}
-                </h3>
-              </div>
-
-              {/* Game View Grid: Board + Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                {/* Chess Board */}
-                <div className="w-full aspect-square">
-                  <ChessBoard
-                    fen={currentPreviewFen}
-                    orientation={activePreviewGame.userColor}
-                    interactive={false}
-                  />
-                  {/* Stepper controls */}
-                  <div className="flex items-center justify-center gap-1 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewPly(0)}
-                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
-                      title="First move"
-                    >
-                      <ChevronsLeft className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewPly((p) => Math.max(0, p - 1))}
-                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
-                      title="Previous move"
-                    >
-                      <ChevronLeft className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="px-2 text-xs font-mono text-gray-400">
-                      Ply {previewPly} / {previewPositions.length - 1}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewPly((p) => Math.min(previewPositions.length - 1, p + 1))}
-                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
-                      title="Next move"
-                    >
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewPly(previewPositions.length - 1)}
-                      className="rounded bg-white/10 p-1.5 text-gray-300 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
-                      title="Last move"
-                    >
-                      <ChevronsRight className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Details & Deviation Pinpoint */}
-                <div className="space-y-4">
-                  {activePreviewGame.repertoireMatch?.deviationPly ? (
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <AlertTriangle className="h-4 w-4 text-amber-400" />
-                        <h4 className="text-xs font-bold text-amber-300">
-                          Deviation at Ply {activePreviewGame.repertoireMatch.deviationPly}
-                        </h4>
-                      </div>
-                      <p className="text-xs text-gray-300 leading-relaxed">
-                        Played move:{' '}
-                        <span className="font-mono font-bold text-rose-400">
-                          {activePreviewGame.repertoireMatch.playedMove}
-                        </span>
-                        {activePreviewGame.repertoireMatch.preparedMove && (
-                          <>
-                            {' '}
-                            instead of prepared{' '}
-                            <span className="font-mono font-bold text-emerald-400">
-                              {activePreviewGame.repertoireMatch.preparedMove}
-                            </span>
-                          </>
-                        )}
-                      </p>
-
-                      {/* Add to Training Queue */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nodeId = fenToNodeId(currentPreviewFen);
-                          onAddToTraining(nodeId);
-                          alert('Position successfully added to your FSRS review queue!');
-                        }}
-                        className="mt-3 flex items-center gap-1.5 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-bold text-black hover:bg-amber-300 transition-colors shadow-xs"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Add to Training Queue</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                        <h4 className="text-xs font-bold text-emerald-300">
-                          {activePreviewGame.repertoireMatch?.status === 'in-book'
-                            ? 'Maintained Repertoire Line'
-                            : 'Standard Game'}
-                        </h4>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Opening played smoothly according to your prepared theory.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="rounded-xl bg-white/5 p-3 text-xs text-gray-400 space-y-1">
-                    <p>Platform: <span className="text-white capitalize">{activePreviewGame.platform}</span></p>
-                    <p>Date: <span className="text-white">{activePreviewGame.date}</span></p>
-                    <p>Time Control: <span className="text-white">{activePreviewGame.timeControl || 'Standard'}</span></p>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
+          <GameReviewModal
+            game={activePreviewGame}
+            userColor={activePreviewGame.userColor}
+            dag={dag}
+            activeRepertoire={
+              repertoires.find(
+                (r) => r.name === activePreviewGame.repertoireMatch?.repertoireName
+              ) || repertoires[0]
+            }
+            onClose={() => setActivePreviewGame(null)}
+            onAddToTraining={onAddToTraining}
+          />
         )}
       </AnimatePresence>
     </div>
