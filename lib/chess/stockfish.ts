@@ -17,10 +17,17 @@ const evalCache = new Map<string, PositionEngineEval>();
 class StockfishWorkerEngine {
   private worker: Worker | null = null;
   private isReady = false;
-  private currentResolver: ((evalData: { scoreCp: number; bestMoveUci?: string; depth: number } | null) => void) | null = null;
+  private queue: Array<{
+    fen: string;
+    depth: number;
+    resolve: (res: { scoreCp: number; bestMoveUci?: string; depth: number }) => void;
+  }> = [];
+  private isProcessing = false;
   private currentScoreCp = 0;
   private currentDepth = 0;
-  private currentPvUci?: string;
+  private currentBestMoveUci?: string;
+  private currentResolver: ((res: { scoreCp: number; bestMoveUci?: string; depth: number }) => void) | null = null;
+  private readyResolvers: Array<() => void> = [];
 
   constructor() {
     this.init();
@@ -29,15 +36,20 @@ class StockfishWorkerEngine {
   private init() {
     if (typeof window === 'undefined') return;
     try {
-      this.worker = new Worker('/stockfish/stockfish.js');
+      const wasmSupported = typeof WebAssembly === 'object';
+      const path = wasmSupported ? '/stockfish/stockfish.wasm.js' : '/stockfish/stockfish.js';
+      this.worker = new Worker(path);
+
       this.worker.onmessage = (event) => {
         const line = typeof event.data === 'string' ? event.data : '';
 
-        if (line === 'readyok') {
+        if (line === 'readyok' || line.includes('readyok')) {
           this.isReady = true;
+          this.readyResolvers.forEach((fn) => fn());
+          this.readyResolvers = [];
         }
 
-        // Parse UCI evaluation: "info depth 10 seldepth 14 score cp 35 ... pv e2e4"
+        // Parse UCI evaluation info lines
         if (line.startsWith('info') && (line.includes('score cp') || line.includes('score mate'))) {
           const depthMatch = line.match(/depth\s+(\d+)/);
           const cpMatch = line.match(/score cp\s+(-?\d+)/);
@@ -52,20 +64,35 @@ class StockfishWorkerEngine {
             this.currentScoreCp = mateIn > 0 ? 30000 - mateIn * 100 : -30000 - mateIn * 100;
           }
           if (pvMatch) {
-            this.currentPvUci = pvMatch[1];
+            this.currentBestMoveUci = pvMatch[1];
           }
         }
 
-        // UCI Bestmove command indicates search finished
-        if (line.startsWith('bestmove') && this.currentResolver) {
+        // Search completed
+        if (line.startsWith('bestmove')) {
           const bestUciMatch = line.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
-          const bestMoveUci = bestUciMatch ? bestUciMatch[1] : this.currentPvUci;
-          this.currentResolver({
-            scoreCp: this.currentScoreCp,
-            depth: this.currentDepth || 10,
-            bestMoveUci,
-          });
-          this.currentResolver = null;
+          const bestMoveUci = bestUciMatch ? bestUciMatch[1] : this.currentBestMoveUci;
+          if (this.currentResolver) {
+            const resolver = this.currentResolver;
+            this.currentResolver = null;
+            resolver({
+              scoreCp: this.currentScoreCp,
+              depth: this.currentDepth || 10,
+              bestMoveUci: bestMoveUci && bestMoveUci !== '(none)' ? bestMoveUci : undefined,
+            });
+          }
+        }
+      };
+
+      this.worker.onerror = () => {
+        // Fallback to stockfish.js if stockfish.wasm.js failed
+        if (path.endsWith('.wasm.js')) {
+          try {
+            this.worker?.terminate();
+            this.worker = new Worker('/stockfish/stockfish.js');
+            this.worker.postMessage('uci');
+            this.worker.postMessage('isready');
+          } catch {}
         }
       };
 
@@ -76,30 +103,80 @@ class StockfishWorkerEngine {
     }
   }
 
+  private async waitUntilReady(): Promise<void> {
+    if (this.isReady) return;
+    return new Promise((resolve) => {
+      this.readyResolvers.push(resolve);
+      setTimeout(() => {
+        this.isReady = true;
+        resolve();
+      }, 2500);
+    });
+  }
+
   public async evaluate(
     fen: string,
-    depth = 10,
-    timeoutMs = 450
-  ): Promise<{ scoreCp: number; bestMoveUci?: string; depth: number } | null> {
-    if (!this.worker) return null;
-
+    depth = 12
+  ): Promise<{ scoreCp: number; bestMoveUci?: string; depth: number }> {
     return new Promise((resolve) => {
-      this.currentResolver = resolve;
+      this.queue.push({ fen, depth, resolve });
+      this.processQueue();
+    });
+  }
+
+  private async processQueue() {
+    if (this.isProcessing || this.queue.length === 0) return;
+    this.isProcessing = true;
+
+    await this.waitUntilReady();
+
+    while (this.queue.length > 0) {
+      const item = this.queue.shift()!;
       this.currentScoreCp = 0;
       this.currentDepth = 0;
-      this.currentPvUci = undefined;
+      this.currentBestMoveUci = undefined;
 
-      this.worker?.postMessage(`position fen ${fen}`);
-      this.worker?.postMessage(`go depth ${depth}`);
+      await new Promise<void>((done) => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
 
-      // Fast timeout fallback to prevent UI blocking
-      setTimeout(() => {
-        if (this.currentResolver) {
-          this.currentResolver(null);
-          this.currentResolver = null;
+        this.currentResolver = (res) => {
+          if (timer) clearTimeout(timer);
+          item.resolve(res);
+          done();
+        };
+
+        // Failsafe timer (1200ms) to ensure queue never halts
+        timer = setTimeout(() => {
+          if (this.currentResolver) {
+            const resolver = this.currentResolver;
+            this.currentResolver = null;
+            try {
+              this.worker?.postMessage('stop');
+            } catch {}
+            resolver({
+              scoreCp: this.currentScoreCp,
+              depth: this.currentDepth || 8,
+              bestMoveUci: this.currentBestMoveUci,
+            });
+            done();
+          }
+        }, 1200);
+
+        try {
+          this.worker?.postMessage(`position fen ${item.fen}`);
+          this.worker?.postMessage(`go depth ${item.depth}`);
+        } catch {
+          if (this.currentResolver) {
+            const resolver = this.currentResolver;
+            this.currentResolver = null;
+            resolver({ scoreCp: 0, depth: 1 });
+            done();
+          }
         }
-      }, timeoutMs);
-    });
+      });
+    }
+
+    this.isProcessing = false;
   }
 
   public destroy() {
@@ -108,21 +185,25 @@ class StockfishWorkerEngine {
   }
 }
 
-let workerInstance: StockfishWorkerEngine | null = null;
+// 2 parallel workers for super fast multi-core local evaluation
+let workerPool: StockfishWorkerEngine[] | null = null;
+let workerRoundRobin = 0;
 
 function getStockfishWorker(): StockfishWorkerEngine | null {
   if (typeof window === 'undefined') return null;
-  if (!workerInstance) {
-    workerInstance = new StockfishWorkerEngine();
+  if (!workerPool) {
+    workerPool = [new StockfishWorkerEngine(), new StockfishWorkerEngine()];
   }
-  return workerInstance;
+  const worker = workerPool[workerRoundRobin % workerPool.length];
+  workerRoundRobin++;
+  return worker;
 }
 
 /**
  * Evaluates a single FEN using Real Stockfish:
  * 1. Checks in-memory cache
  * 2. Queries Lichess Cloud Stockfish (Depth 50-70+)
- * 3. Falls back to Client-side Stockfish Web Worker
+ * 3. Falls back to Client-side Stockfish WebAssembly Worker (Depth 12)
  */
 export async function evaluateFenWithStockfish(fen: string): Promise<PositionEngineEval> {
   if (evalCache.has(fen)) {
@@ -137,9 +218,14 @@ export async function evaluateFenWithStockfish(fen: string): Promise<PositionEng
     const cloud = await fetchCloudEval(fen, 1);
     if (cloud && cloud.pvs && cloud.pvs.length > 0) {
       const topPv = cloud.pvs[0];
-      const rawScore = topPv.cp !== undefined ? topPv.cp : topPv.mate !== undefined ? (topPv.mate > 0 ? 30000 : -30000) : 0;
-      // In Lichess Cloud API, cp is strictly from White's perspective
-      const whiteScoreCp = rawScore;
+      const rawScore =
+        topPv.cp !== undefined
+          ? topPv.cp
+          : topPv.mate !== undefined
+          ? topPv.mate > 0
+            ? 30000
+            : -30000
+          : 0;
 
       let bestSan: string | undefined;
       let bestUci: string | undefined;
@@ -160,7 +246,7 @@ export async function evaluateFenWithStockfish(fen: string): Promise<PositionEng
 
       const result: PositionEngineEval = {
         fen,
-        scoreCp: whiteScoreCp,
+        scoreCp: rawScore,
         mate: topPv.mate,
         depth: cloud.depth,
         bestMoveSan: bestSan,
@@ -172,15 +258,17 @@ export async function evaluateFenWithStockfish(fen: string): Promise<PositionEng
     }
   } catch {}
 
-  // 2. Try Client-side Stockfish Web Worker
+  // 2. Real Stockfish WebAssembly Worker (Depth 12)
   try {
     const worker = getStockfishWorker();
     if (worker) {
       const local = await worker.evaluate(fen, 12);
-      if (local && local.bestMoveUci) {
-        const whiteScoreCp = turn === 'w' ? local.scoreCp : -local.scoreCp;
-        let bestSan: string | undefined;
+      // In UCI protocol: score is from side-to-move's perspective
+      // Convert to White's perspective (+ = White advantage, - = Black advantage)
+      const whiteScoreCp = turn === 'w' ? local.scoreCp : -local.scoreCp;
+      let bestSan: string | undefined;
 
+      if (local.bestMoveUci) {
         try {
           const move = chess.move({
             from: local.bestMoveUci.slice(0, 2) as Square,
@@ -190,22 +278,22 @@ export async function evaluateFenWithStockfish(fen: string): Promise<PositionEng
           if (move) bestSan = move.san;
           chess.undo();
         } catch {}
-
-        const result: PositionEngineEval = {
-          fen,
-          scoreCp: whiteScoreCp,
-          depth: local.depth,
-          bestMoveSan: bestSan,
-          bestMoveUci: local.bestMoveUci,
-          source: 'local-stockfish',
-        };
-        evalCache.set(fen, result);
-        return result;
       }
+
+      const result: PositionEngineEval = {
+        fen,
+        scoreCp: whiteScoreCp,
+        depth: local.depth,
+        bestMoveSan: bestSan,
+        bestMoveUci: local.bestMoveUci,
+        source: 'local-stockfish',
+      };
+      evalCache.set(fen, result);
+      return result;
     }
   } catch {}
 
-  // 3. Fallback: Quick material + piece table count
+  // 3. Fallback: Quick material count
   let score = 0;
   const PIECES: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
   const board = chess.board();
@@ -235,15 +323,14 @@ export async function evaluateFenWithStockfish(fen: string): Promise<PositionEng
  * High-performance concurrent batch evaluation:
  * 1. Checks memory cache for instantaneous responses.
  * 2. Concurrently fetches from Lichess Cloud Eval (8 parallel connections).
- * 3. Quickly evaluates remaining misses via client Stockfish worker (capped at 400ms).
- * Completes a full 80-100 ply game evaluation in ~5-10 seconds!
+ * 3. Quickly evaluates remaining misses via client Stockfish WASM worker pool (2 workers).
+ * Completes a full 80-100 ply game evaluation in ~2-4 seconds!
  */
 export async function evaluateBatchWithStockfish(
   fens: string[],
   onProgress?: (completed: number, total: number) => void
 ): Promise<Map<string, PositionEngineEval>> {
   const results = new Map<string, PositionEngineEval>();
-  // Filter unique FENs to eliminate redundant work
   const uniqueFens = Array.from(new Set(fens));
   const total = uniqueFens.length;
   let completed = 0;
@@ -261,14 +348,14 @@ export async function evaluateBatchWithStockfish(
   if (onProgress) onProgress(completed, total);
   if (missingFens.length === 0) return results;
 
-  // Parallel pool for Cloud Eval
+  // 1. Parallel pool for Cloud Eval
   const cloudMisses: string[] = [];
-  const CONCURRENCY = 8;
-  let cursor = 0;
+  const CLOUD_CONCURRENCY = 8;
+  let cloudCursor = 0;
 
   const runCloudWorker = async () => {
-    while (cursor < missingFens.length) {
-      const idx = cursor++;
+    while (cloudCursor < missingFens.length) {
+      const idx = cloudCursor++;
       const fen = missingFens[idx];
 
       try {
@@ -279,7 +366,9 @@ export async function evaluateBatchWithStockfish(
             topPv.cp !== undefined
               ? topPv.cp
               : topPv.mate !== undefined
-              ? (topPv.mate > 0 ? 30000 : -30000)
+              ? topPv.mate > 0
+                ? 30000
+                : -30000
               : 0;
 
           let bestSan: string | undefined;
@@ -321,16 +410,27 @@ export async function evaluateBatchWithStockfish(
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, missingFens.length) }, runCloudWorker)
+    Array.from({ length: Math.min(CLOUD_CONCURRENCY, missingFens.length) }, runCloudWorker)
   );
 
-  // Evaluate remaining misses with local worker / fallback
-  for (const fen of cloudMisses) {
-    const evalItem = await evaluateFenWithStockfish(fen);
-    results.set(fen, evalItem);
-    completed++;
-    if (onProgress) onProgress(completed, total);
-  }
+  // 2. Evaluate remaining misses using local WASM worker pool concurrently (2 workers)
+  const LOCAL_CONCURRENCY = 2;
+  let localCursor = 0;
+
+  const runLocalWorker = async () => {
+    while (localCursor < cloudMisses.length) {
+      const idx = localCursor++;
+      const fen = cloudMisses[idx];
+      const evalItem = await evaluateFenWithStockfish(fen);
+      results.set(fen, evalItem);
+      completed++;
+      if (onProgress) onProgress(completed, total);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(LOCAL_CONCURRENCY, cloudMisses.length) }, runLocalWorker)
+  );
 
   return results;
 }

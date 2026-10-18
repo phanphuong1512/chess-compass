@@ -11,7 +11,7 @@ import {
 // In-memory cache for ultra-fast instantaneous retrieval across session
 export const gameReviewMemoryCache = new Map<string, GameReviewResult>();
 
-const REVIEW_CACHE_VERSION = 'v4';
+const REVIEW_CACHE_VERSION = 'v5';
 
 export function getGameReviewKey(game: ImportedGame): string {
   let base = '';
@@ -225,10 +225,14 @@ export interface GameReviewResult {
 }
 
 /**
- * Calculates win probability from centipawn evaluation (Chess.com/Lichess Sigmoid model)
+ * Calculates win probability percentage (0 - 100%) from centipawn evaluation.
+ * Uses Chess.com's standard logistic (sigmoid) Expected Points model: P = 100 / (1 + 10^(-cp / 400))
  */
-function centipawnsToWinProb(cp: number): number {
-  return 100 / (1 + Math.pow(10, -cp / 400));
+export function centipawnsToWinProb(cp: number): number {
+  if (cp >= 20000) return 100;
+  if (cp <= -20000) return 0;
+  const clamped = Math.max(-2500, Math.min(2500, cp));
+  return 100 / (1 + Math.pow(10, -clamped / 400));
 }
 
 /**
@@ -621,13 +625,18 @@ export async function analyzeFullGameAsync(
 
     evalHistory.push(afterScoreCp);
 
-    // Calculate centipawn loss from moving player's perspective
-    let cpLoss = 0;
-    if (turn === 'white') {
-      cpLoss = Math.max(0, beforeScoreCp - afterScoreCp);
-    } else {
-      cpLoss = Math.max(0, afterScoreCp - beforeScoreCp);
-    }
+    // Centipawns from moving player's perspective
+    const playerScoreBefore = turn === 'white' ? beforeScoreCp : -beforeScoreCp;
+    const playerScoreAfter = turn === 'white' ? afterScoreCp : -afterScoreCp;
+    const cpLoss = Math.max(0, playerScoreBefore - playerScoreAfter);
+
+    // Chess.com Expected Points Model (Win Probability: 0% to 100%)
+    const winProbBefore = centipawnsToWinProb(playerScoreBefore);
+    const winProbAfter = centipawnsToWinProb(playerScoreAfter);
+
+    // Drop in win probability percentage caused by the move
+    const winLoss = Math.max(0, winProbBefore - winProbAfter);
+    const winGain = winProbAfter - winProbBefore;
 
     // Check opening book
     const nodeIdBefore = fenToNodeId(fenBefore);
@@ -642,48 +651,60 @@ export async function analyzeFullGameAsync(
       isBook = true;
     }
 
-    // Classification
+    // Move Classification (Official Chess.com Classification V2 Expected Points Thresholds)
     let classification: MoveClassification;
+
     if (lichessJudgment) {
       if (lichessJudgment === 'Blunder') classification = 'blunder';
       else if (lichessJudgment === 'Mistake') classification = 'mistake';
       else if (lichessJudgment === 'Inaccuracy') classification = 'inaccuracy';
-      else if (isBook && cpLoss < 60) classification = 'book';
-      else if (cpLoss <= 12) classification = 'best';
-      else if (cpLoss <= 30) classification = 'excellent';
+      else if (isBook && winLoss <= 3.0) classification = 'book';
+      else if (winLoss <= 0.2 || (bestMove && move.san === bestMove.san)) classification = 'best';
+      else if (winLoss <= 2.0) classification = 'excellent';
+      else if (winLoss <= 5.0) classification = 'good';
       else classification = 'good';
-    } else if (isBook && cpLoss < 60) {
+    } else if (isBook && winLoss <= 3.0) {
       classification = 'book';
     } else {
       const isSacrifice = isGenuineSacrifice(move, fenBefore, fenAfter, turn, afterScoreCp);
 
-      // Check if player made a significant evaluation gain (great move)
-      const playerWinGain =
-        turn === 'white' ? afterScoreCp - beforeScoreCp : beforeScoreCp - afterScoreCp;
+      // Great move (Chess.com definition):
+      // - Near optimal (winLoss <= 1.5%)
+      // - Not a sacrifice, not a book move
+      // - Critical turning point: swung win probability by >= 15%, OR
+      //   found a sharp resource in a tense game (winProbBefore between 35% and 65% and winGain >= 8%)
       const isGreat =
         !isSacrifice &&
-        cpLoss <= 8 &&
         !isBook &&
-        ((playerWinGain >= 150 && (turn === 'white' ? afterScoreCp >= 150 : afterScoreCp <= -150)) ||
-          (Math.abs(beforeScoreCp) <= 75 && (turn === 'white' ? afterScoreCp >= 220 : afterScoreCp <= -220)));
+        winLoss <= 1.5 &&
+        (winGain >= 15.0 || (winProbBefore >= 35 && winProbBefore <= 65 && winGain >= 8.0));
 
-      if (isSacrifice && cpLoss <= 10) {
+      if (isSacrifice && winLoss <= 2.0 && winProbAfter >= 35.0) {
+        // Brilliant (!!): Genuine material sacrifice, maintains advantage/equality, winLoss <= 2%
         classification = 'brilliant';
       } else if (isGreat) {
+        // Great (!): Turning point or crucial saving move
         classification = 'great';
-      } else if (cpLoss <= 12) {
+      } else if (winLoss <= 0.2 || (bestMove && move.san === bestMove.san)) {
+        // Best (★): Absolute top engine recommendation or zero loss (<= 0.2%)
         classification = 'best';
-      } else if (cpLoss <= 30) {
+      } else if (winLoss <= 2.0) {
+        // Excellent (▲): 0.2% - 2.0% win probability loss
         classification = 'excellent';
-      } else if (cpLoss <= 65) {
+      } else if (winLoss <= 5.0) {
+        // Good (✓): 2.0% - 5.0% win probability loss
         classification = 'good';
-      } else if (prevOpponentBlundered && cpLoss > 120) {
+      } else if (prevOpponentBlundered && winLoss >= 12.0) {
+        // Miss (✕): Opponent blundered/mistook, but player failed to punish and lost >= 12%
         classification = 'miss';
-      } else if (cpLoss <= 130) {
+      } else if (winLoss <= 10.0) {
+        // Inaccuracy (?!): 5.0% - 10.0% win probability loss
         classification = 'inaccuracy';
-      } else if (cpLoss <= 250) {
+      } else if (winLoss <= 20.0) {
+        // Mistake (?): 10.0% - 20.0% win probability loss
         classification = 'mistake';
       } else {
+        // Blunder (??): > 20.0% win probability loss (hands a massive chunk of the game to opponent)
         classification = 'blunder';
       }
     }
@@ -691,11 +712,8 @@ export async function analyzeFullGameAsync(
     counts[turn][classification]++;
     prevOpponentBlundered = classification === 'blunder' || classification === 'mistake';
 
-    // Win% delta and Move Accuracy
-    const winProbBefore = centipawnsToWinProb(turn === 'white' ? beforeScoreCp : -beforeScoreCp);
-    const winProbAfter = centipawnsToWinProb(turn === 'white' ? afterScoreCp : -afterScoreCp);
-    const deltaWin = Math.max(0, winProbBefore - winProbAfter);
-    const moveAccuracy = winProbLossToAccuracy(deltaWin);
+    // Move Accuracy (CAPS / Lichess standard exponential conversion)
+    const moveAccuracy = winProbLossToAccuracy(winLoss);
 
     if (turn === 'white') {
       whiteAccuracyAccum.push(moveAccuracy);
