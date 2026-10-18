@@ -10,6 +10,7 @@ import {
   Globe,
   FileUp,
   ChevronLeft,
+  ChevronRight,
   Sparkles,
   Database,
   Layers,
@@ -31,7 +32,9 @@ import {
   Play,
   ArrowRight,
   Plus,
+  LayoutGrid,
 } from 'lucide-react';
+import { TurnIndicatorBadge } from '@/components/icons/ChessPieceIcons';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -117,7 +120,9 @@ export default function StudyPage() {
   const [studyNavTab, setStudyNavTab] = useState<StudyNavTab>('repertoire');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [screenMode, setScreenMode] = useState<'dashboard' | 'repertoire'>('dashboard');
-  const [viewMode, setViewMode] = useState<'graph' | 'list'>('list');
+  const [viewMode, setViewMode] = useState<'board' | 'graph' | 'list'>('board');
+  const [sideTab, setSideTab] = useState<'moves' | 'tree' | 'explorer'>('moves');
+  const [trainingFilterNodeIds, setTrainingFilterNodeIds] = useState<string[] | null>(null);
 
   // Repertoires & Modals
   const [repertoires, setRepertoires] = useState<Repertoire[]>([]);
@@ -378,9 +383,15 @@ export default function StudyPage() {
     [dag, allEdges, activeRepertoireId]
   );
 
-  // Create repertoire handler
+  // Create repertoire handler with full PGN import support
   const handleCreateNewRepertoire = useCallback(
-    async (repData: { name: string; color: ChessColor; firstMove?: string }) => {
+    async (repData: {
+      name: string;
+      color: ChessColor;
+      firstMove?: string;
+      coverStyle?: string;
+      pgnText?: string;
+    }) => {
       try {
         const newRep: Repertoire = {
           id: `rep_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -392,7 +403,78 @@ export default function StudyPage() {
         };
         await createRepertoireInD1(newRep);
 
-        if (repData.firstMove) {
+        // If PGN text is provided, parse and import all moves into the repertoire!
+        if (repData.pgnText && repData.pgnText.trim()) {
+          const chess = new Chess();
+          let loaded = false;
+          try {
+            chess.loadPgn(repData.pgnText);
+            loaded = true;
+          } catch {
+            try {
+              const clean = repData.pgnText.replace(/\[.*?\]\s*/g, '').trim();
+              chess.loadPgn(clean);
+              loaded = true;
+            } catch {}
+          }
+
+          if (loaded) {
+            const rawMoves = chess.history({ verbose: true });
+            const playChess = new Chess();
+            const movesToSave: Array<{
+              fromFen: string;
+              toFen: string;
+              san: string;
+              uci: string;
+              sortOrder: number;
+            }> = [];
+
+            for (let idx = 0; idx < rawMoves.length; idx++) {
+              const m = rawMoves[idx];
+              const fromFen = playChess.fen();
+              playChess.move(m);
+              const toFen = playChess.fen();
+              const uci = m.from + m.to + (m.promotion || '');
+
+              movesToSave.push({
+                fromFen,
+                toFen,
+                san: m.san,
+                uci,
+                sortOrder: idx,
+              });
+
+              const toNodeId = fenToNodeId(toFen);
+              const fromNodeId = fenToNodeId(fromFen);
+              await db.nodes.put({
+                id: toNodeId,
+                fen: toFen,
+                comments: '',
+                annotations: [],
+              });
+              await db.edges.put({
+                fromNodeId,
+                toNodeId,
+                san: m.san,
+                uci,
+                repertoireId: newRep.id,
+                sortOrder: idx,
+              });
+              await db.cards.put(createCard(toNodeId));
+            }
+
+            if (movesToSave.length > 0) {
+              await fetch('/api/study/moves', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  moves: movesToSave,
+                  repertoireId: newRep.id,
+                }),
+              });
+            }
+          }
+        } else if (repData.firstMove) {
           const chess = new Chess();
           const moveRes = chess.move(repData.firstMove);
           if (moveRes) {
@@ -411,6 +493,7 @@ export default function StudyPage() {
         setOrientation(repData.color);
         setStudyNavTab('repertoire');
         setScreenMode('repertoire');
+        setViewMode('board');
       } catch (err) {
         console.error('Failed to create repertoire:', err);
       }
@@ -450,8 +533,10 @@ export default function StudyPage() {
 
         await refreshDatabase();
         setActiveRepertoireId(newRep.id);
+        setOrientation(course.color);
         setStudyNavTab('repertoire');
         setScreenMode('repertoire');
+        setViewMode('board');
       } catch (err) {
         console.error('Add library course error:', err);
       }
@@ -462,10 +547,15 @@ export default function StudyPage() {
   // Chapter selection from RepertoireDetail
   const handleSelectChapter = useCallback(
     (chapter: any) => {
-      if (chapter.initialMoves && chapter.initialMoves.length > 0) {
+      const moves: string[] = Array.isArray(chapter)
+        ? chapter
+        : chapter?.moves || chapter?.initialMoves || [];
+
+      if (moves.length > 0) {
         const chess = new Chess();
         const edges: RepertoireEdge[] = [];
-        for (const san of chapter.initialMoves) {
+        for (let i = 0; i < moves.length; i++) {
+          const san = moves[i];
           try {
             const fromFen = chess.fen();
             const moveRes = chess.move(san);
@@ -476,7 +566,7 @@ export default function StudyPage() {
                 san,
                 uci: moveRes.from + moveRes.to,
                 repertoireId: activeRepertoireId || '',
-                sortOrder: 0,
+                sortOrder: i,
               });
             }
           } catch {
@@ -486,16 +576,36 @@ export default function StudyPage() {
         setCurrentFen(chess.fen());
         setMoveHistory(edges);
         setCurrentMoveIndex(edges.length - 1);
-        setViewMode('graph');
+        setViewMode('board');
       }
     },
     [activeRepertoireId]
   );
 
   // Training handlers
-  const handleStartTrainingWithMode = useCallback((mode: 'review' | 'learn' | 'overstudy', filterNodeIds?: string[]) => {
-    setIsTraining(true);
-  }, []);
+  const handleStartTrainingWithMode = useCallback(
+    (mode: 'review' | 'learn' | 'overstudy', filterNodeIds?: string[]) => {
+      setTrainingFilterNodeIds(filterNodeIds && filterNodeIds.length > 0 ? filterNodeIds : null);
+      setIsTraining(true);
+    },
+    []
+  );
+
+  // Training cards filtered by active repertoire and selected chapter
+  const trainingCards = useMemo(() => {
+    let cards = allCards;
+    if (activeRepertoireId) {
+      const repEdges = allEdges.filter((e) => e.repertoireId === activeRepertoireId);
+      const repNodeIds = new Set(repEdges.map((e) => e.toNodeId));
+      repNodeIds.add(fenToNodeId(STARTING_FEN));
+      cards = cards.filter((c) => repNodeIds.has(c.nodeId));
+    }
+    if (trainingFilterNodeIds && trainingFilterNodeIds.length > 0) {
+      const filterSet = new Set(trainingFilterNodeIds);
+      cards = cards.filter((c) => filterSet.has(c.nodeId));
+    }
+    return cards.length > 0 ? cards : allCards;
+  }, [allCards, activeRepertoireId, allEdges, trainingFilterNodeIds]);
 
   const handleUpdateCard = useCallback(async (card: FSRSCard) => {
     await updateCardInD1(card);
@@ -680,33 +790,46 @@ export default function StudyPage() {
               </button>
             ) : studyNavTab === 'repertoire' && screenMode === 'repertoire' ? (
               <div className="flex items-center gap-2">
-                {/* List vs Graph toggle */}
+                {/* 3-way View switcher: Board, Graph, Overview */}
                 <div className="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 p-0.5">
                   <button
                     type="button"
-                    onClick={() => setViewMode('list')}
+                    onClick={() => setViewMode('board')}
                     className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                      viewMode === 'list'
-                        ? 'bg-white/20 text-white shadow-xs font-semibold'
+                      viewMode === 'board'
+                        ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
                         : 'text-gray-400 hover:text-white'
                     }`}
-                    title="Chapters List View"
+                    title="Interactive Board & Moves"
                   >
-                    <List className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">List</span>
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Board</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode('graph')}
                     className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
                       viewMode === 'graph'
-                        ? 'bg-amber-400 text-stone-950 font-bold'
+                        ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
                         : 'text-gray-400 hover:text-white'
                     }`}
                     title="Interactive Diagram Graph View"
                   >
                     <GitBranch className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">Graph</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                      viewMode === 'list'
+                        ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                    title="Chapters Overview"
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Overview</span>
                   </button>
                 </div>
 
@@ -748,7 +871,7 @@ export default function StudyPage() {
           {isTraining ? (
             <main className="mx-auto max-w-lg px-4 py-6">
               <TrainingSession
-                cards={allCards}
+                cards={trainingCards}
                 nodes={nodesMap}
                 edges={edgesMap}
                 onUpdateCard={handleUpdateCard}
@@ -763,13 +886,217 @@ export default function StudyPage() {
                 allEdges={allEdges}
                 onSelectRepertoire={(id) => {
                   setActiveRepertoireId(id);
+                  const selectedRep = repertoires.find((r) => r.id === id);
+                  if (selectedRep) setOrientation(selectedRep.color);
                   setScreenMode('repertoire');
+                  setViewMode('board');
                 }}
                 onOpenCreateModal={() => setShowNewRepertoireModal(true)}
                 onOpenBuildFromGames={() => setShowBuildFromGamesModal(true)}
-                onStartReview={() => setIsTraining(true)}
-                onDrillMistakes={() => setIsTraining(true)}
+                onStartReview={() => {
+                  setTrainingFilterNodeIds(null);
+                  setIsTraining(true);
+                }}
+                onDrillMistakes={() => {
+                  setTrainingFilterNodeIds(null);
+                  setIsTraining(true);
+                }}
               />
+            ) : viewMode === 'board' && activeRepertoire ? (
+              <div className="h-full flex flex-col lg:flex-row overflow-hidden bg-[#0B0F17]">
+                {/* Left/Center: Interactive ChessBoard + EvalBar + Navigation */}
+                <div className="flex-1 flex flex-col items-center justify-center p-3 sm:p-5 overflow-y-auto">
+                  <div className="w-full max-w-[500px] flex flex-col gap-2.5">
+                    {/* Top board status: Turn, Eval, Engine Pill */}
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <TurnIndicatorBadge
+                          turn={(() => {
+                            try {
+                              return new Chess(currentFen).turn() === 'w' ? 'white' : 'black';
+                            } catch {
+                              return 'white';
+                            }
+                          })()}
+                          label={(() => {
+                            try {
+                              return new Chess(currentFen).turn() === 'w' ? 'White to move' : 'Black to move';
+                            } catch {
+                              return 'White to move';
+                            }
+                          })()}
+                        />
+                        <span className="text-[0.68rem] font-bold text-gray-400 capitalize">
+                          {activeRepertoire.color} Repertoire
+                        </span>
+                      </div>
+                      {engineScore && (
+                        <div className="flex items-center gap-1.5 rounded-md bg-white/5 border border-white/10 px-2 py-0.5 text-xs font-mono font-bold text-gray-300">
+                          <span>Eval:</span>
+                          <span className={engineScore.value >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                            {engineScore.type === 'mate'
+                              ? `M${engineScore.value}`
+                              : `${engineScore.value >= 0 ? '+' : ''}${(engineScore.value / 100).toFixed(2)}`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ChessBoard + Vertical EvalBar */}
+                    <div className="flex items-stretch gap-2.5">
+                      <div className="w-6 shrink-0 rounded-lg overflow-hidden bg-white/5 border border-white/10">
+                        <EvalBar score={engineScore} />
+                      </div>
+                      <div className="flex-1 aspect-square rounded-xl overflow-hidden border border-white/10 shadow-2xl bg-[#141B29]">
+                        <ChessBoard
+                          fen={currentFen}
+                          orientation={orientation}
+                          onMove={handleMove}
+                          interactive={true}
+                          lastMove={lastMove}
+                          arrows={boardArrows}
+                          showCoordinates={true}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Bottom Controls: Navigation Stepper & Action Buttons */}
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={navigateFirst}
+                          className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="First Move (Home)"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={navigatePrev}
+                          className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="Previous Move (Left)"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={navigateNext}
+                          className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="Next Move (Right)"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={navigateLast}
+                          className="rounded-lg bg-white/5 p-2 text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="Last Move (End)"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentFen(STARTING_FEN);
+                            setMoveHistory([]);
+                            setCurrentMoveIndex(-1);
+                          }}
+                          className="flex items-center gap-1 rounded-lg bg-white/5 border border-white/10 px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="Reset Board"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          <span>Reset</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTrainingFilterNodeIds(null);
+                            setIsTraining(true);
+                          }}
+                          className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 px-3.5 py-1.5 text-xs font-bold text-stone-950 transition-all hover:brightness-110 active:scale-[0.98] cursor-pointer shadow-md"
+                        >
+                          <GraduationCap className="h-3.5 w-3.5 stroke-[2.5]" />
+                          <span>Train This</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Scoresheet Tabs (Moves, Tree, Explorer) */}
+                <div className="w-full lg:w-[400px] shrink-0 border-t lg:border-t-0 lg:border-l border-white/[0.08] bg-[#121724] flex flex-col h-[380px] lg:h-full">
+                  <div className="flex items-center border-b border-white/[0.08] bg-[#0E131E] px-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSideTab('moves')}
+                      className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                        sideTab === 'moves'
+                          ? 'border-amber-400 text-amber-300'
+                          : 'border-transparent text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Moves ({moveHistory.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSideTab('tree')}
+                      className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                        sideTab === 'tree'
+                          ? 'border-amber-400 text-amber-300'
+                          : 'border-transparent text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Repertoire Tree
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSideTab('explorer')}
+                      className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                        sideTab === 'explorer'
+                          ? 'border-amber-400 text-amber-300'
+                          : 'border-transparent text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Opening Explorer
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-3">
+                    {sideTab === 'moves' ? (
+                      <MoveList
+                        moves={moveHistory}
+                        currentMoveIndex={currentMoveIndex}
+                        onSelectMove={navigateToMove}
+                      />
+                    ) : sideTab === 'tree' ? (
+                      <RepertoireTree
+                        repertoires={repertoires}
+                        activeRepertoireId={activeRepertoireId}
+                        treeData={treeData}
+                        onSelectRepertoire={(id) => {
+                          setActiveRepertoireId(id);
+                          const sel = repertoires.find((r) => r.id === id);
+                          if (sel) setOrientation(sel.color);
+                        }}
+                        onSelectNode={handleSelectNode}
+                        onCreateRepertoire={() => setShowNewRepertoireModal(true)}
+                        onDeleteRepertoire={async (id) => {
+                          await deleteRepertoireFromD1(id);
+                          await refreshDatabase();
+                        }}
+                        selectedNodeId={currentNodeId}
+                      />
+                    ) : (
+                      <ExplorerPanel fen={currentFen} onSelectMove={handleExplorerMove} />
+                    )}
+                  </div>
+                </div>
+              </div>
             ) : viewMode === 'graph' && activeRepertoire ? (
               <div className="w-full h-full overflow-hidden">
                 <RepertoireGraph
@@ -778,7 +1105,10 @@ export default function StudyPage() {
                   allEdges={allEdges}
                   allCards={allCards}
                   onBack={() => setScreenMode('dashboard')}
-                  onStartTrainingNode={() => setIsTraining(true)}
+                  onStartTrainingNode={() => {
+                    setTrainingFilterNodeIds(null);
+                    setIsTraining(true);
+                  }}
                   onUpdateNode={(updatedNode) => {
                     setAllNodes((prev) => prev.map((n) => (n.id === updatedNode.id ? updatedNode : n)));
                   }}

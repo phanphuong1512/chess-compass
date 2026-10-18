@@ -31,7 +31,20 @@ export default function TrainingSession({
   onUpdateCard,
   onComplete,
 }: TrainingSessionProps) {
-  const dueCards = useMemo(() => getDueCards(allCards), [allCards]);
+  const dueCards = useMemo(() => {
+    const raw = getDueCards(allCards);
+    // Filter cards where node exists and there is an outgoing edge to guess
+    const valid = raw.filter(
+      (c) => nodes.has(c.nodeId) && (edges.get(c.nodeId)?.length ?? 0) > 0
+    );
+    // If no due cards, fall back to any cards with outgoing moves (for Overstudy / Chapter training)
+    if (valid.length === 0) {
+      return allCards.filter(
+        (c) => nodes.has(c.nodeId) && (edges.get(c.nodeId)?.length ?? 0) > 0
+      );
+    }
+    return valid;
+  }, [allCards, nodes, edges]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [sessionState, setSessionState] = useState<SessionState>('showing');
   const [streak, setStreak] = useState(0);
