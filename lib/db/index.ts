@@ -9,6 +9,16 @@ import type {
   ImportedGame,
 } from '@/types/chess';
 
+export interface StoredGameReview {
+  id: string; // cacheKey (gameId or hash)
+  gameId: string;
+  userColor?: 'white' | 'black';
+  whiteAccuracy: number;
+  blackAccuracy: number;
+  result: any;
+  createdAt: number;
+}
+
 class ChessCompassDatabase extends Dexie {
   repertoires!: EntityTable<Repertoire, 'id'>;
   nodes!: EntityTable<RepertoireNode, 'id'>;
@@ -17,6 +27,7 @@ class ChessCompassDatabase extends Dexie {
   reviewLogs!: EntityTable<ReviewLog, 'id'>;
   deviations!: EntityTable<DeviationReport, 'id'>;
   games!: EntityTable<ImportedGame, 'id'>;
+  gameReviews!: EntityTable<StoredGameReview, 'id'>;
 
   constructor() {
     super('ChessCompass');
@@ -30,7 +41,12 @@ class ChessCompassDatabase extends Dexie {
       deviations: '++id, gameId, platform, playerUsername, repertoireId, createdAt',
       games: 'id, platform, date',
     });
+
+    this.version(2).stores({
+      gameReviews: 'id, gameId, createdAt',
+    });
   }
 }
 
 export const db = new ChessCompassDatabase();
+

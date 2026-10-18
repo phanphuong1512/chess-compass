@@ -34,6 +34,9 @@ import {
   type MoveReviewItem,
   type MoveClassification,
   CLASSIFICATION_META,
+  gameReviewMemoryCache,
+  invalidateGameReview,
+  getGameReviewKey,
 } from '@/lib/chess/gameReview';
 import ChessBoard from './ChessBoard';
 import { playMoveSound } from '@/lib/chess/audio';
@@ -66,54 +69,81 @@ export default function GameReviewModal({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>(userColor);
 
+  // Check in-memory cache synchronously for instant zero-wait opening
+  const cacheKey = getGameReviewKey(game);
+  const initialCached = gameReviewMemoryCache.get(cacheKey) || null;
+
   // Real Engine Analysis State
-  const [reviewResult, setReviewResult] = useState<GameReviewResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [progressPercent, setProgressPercent] = useState(0);
-  const [progressText, setProgressText] = useState('Initializing Stockfish 16 engine...');
+  const [reviewResult, setReviewResult] = useState<GameReviewResult | null>(initialCached);
+  const [isLoading, setIsLoading] = useState(!initialCached);
+  const [progressPercent, setProgressPercent] = useState(initialCached ? 100 : 0);
+  const [progressText, setProgressText] = useState(
+    initialCached ? 'Analysis ready' : 'Initializing Stockfish 16 engine...'
+  );
 
   const moveListRef = useRef<HTMLDivElement>(null);
   const activeMoveButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Execute Real Stockfish Analysis (using Lichess Cloud depth 50+ & Stockfish Web Worker)
+  // Execute or Load Stockfish Analysis
+  const runAnalysis = React.useCallback(
+    (force = false) => {
+      let isMounted = true;
+      setIsLoading(true);
+      setProgressPercent(15);
+      setProgressText(force ? 'Re-analyzing with Stockfish 16 engine...' : 'Loading game analysis...');
+
+      analyzeFullGameAsync(
+        game,
+        userColor,
+        dag,
+        activeRepertoire ?? undefined,
+        (pct, msg) => {
+          if (isMounted) {
+            setProgressPercent(pct);
+            setProgressText(msg);
+          }
+        },
+        force
+      )
+        .then((res) => {
+          if (isMounted) {
+            setReviewResult(res);
+            setIsLoading(false);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to analyze game with Stockfish:', err);
+          if (isMounted) setIsLoading(false);
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    },
+    [game, userColor, dag, activeRepertoire]
+  );
+
   useEffect(() => {
-    let isMounted = true;
-    setIsLoading(true);
-    setProgressPercent(15);
-    setProgressText('Extracting game notation & engine evaluations...');
+    // If not already in memory cache, run analysis (checks Dexie database first)
+    if (!initialCached) {
+      return runAnalysis(false);
+    }
+  }, [initialCached, runAnalysis]);
 
-    analyzeFullGameAsync(
-      game,
-      userColor,
-      dag,
-      activeRepertoire ?? undefined,
-      (pct, msg) => {
-        if (isMounted) {
-          setProgressPercent(pct);
-          setProgressText(msg);
-        }
-      }
-    )
-      .then((res) => {
-        if (isMounted) {
-          setReviewResult(res);
-          setIsLoading(false);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to analyze game with Stockfish:', err);
-        if (isMounted) setIsLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [game, userColor, dag, activeRepertoire]);
+  const handleForceReanalyze = () => {
+    invalidateGameReview(game);
+    runAnalysis(true);
+  };
 
   const totalPlies = reviewResult ? reviewResult.positions.length - 1 : 0;
-  const currentFen = reviewResult?.positions[currentPly] || game.pgn ? reviewResult?.positions[0] || '' : '';
+  // Fix: Correctly grab position for currentPly without being overridden by ternary operator precedence
+  const currentFen =
+    reviewResult?.positions[currentPly] ??
+    reviewResult?.positions[0] ??
+    '';
   const currentMove: MoveReviewItem | undefined =
     reviewResult && currentPly > 0 ? reviewResult.moves[currentPly - 1] : undefined;
+
 
   // Auto-scroll the move list when current ply changes
   useEffect(() => {
@@ -284,9 +314,21 @@ export default function GameReviewModal({
                   <Cpu className="h-2.5 w-2.5" />
                   Stockfish 16
                 </span>
+                {!isLoading && reviewResult && (
+                  <button
+                    type="button"
+                    onClick={handleForceReanalyze}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[0.62rem] font-semibold text-gray-300 hover:text-white transition-colors cursor-pointer"
+                    title="Re-run deep engine analysis"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" />
+                    <span className="hidden sm:inline">Re-analyze</span>
+                  </button>
+                )}
               </h2>
             </div>
           </div>
+
 
           <div className="flex items-center gap-2">
             {/* View Mode Toggle: Summary Report vs Move Review */}
@@ -443,9 +485,9 @@ export default function GameReviewModal({
                 {/* Move Classification Breakdown Table */}
                 <div className="max-w-3xl mx-auto rounded-2xl border border-white/10 bg-[#141A28] shadow-xl overflow-hidden">
                   {/* Table Header */}
-                  <div className="grid grid-cols-12 px-5 py-3 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-white/[0.08] bg-[#0E131E]/60 items-center">
+                  <div className="grid grid-cols-12 px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-white/[0.08] bg-[#0E131E]/70 items-center">
                     {/* White Player Column */}
-                    <div className="col-span-4 flex items-center justify-end gap-2 pr-4">
+                    <div className="col-span-4 flex items-center justify-end gap-2 pr-6 sm:pr-8">
                       <span className="h-2.5 w-2.5 rounded-full border border-gray-300 bg-white shadow-xs" />
                       <span className="text-xs font-bold text-gray-200 truncate max-w-[130px]">
                         {game.white}
@@ -463,7 +505,7 @@ export default function GameReviewModal({
                     </div>
 
                     {/* Black Player Column */}
-                    <div className="col-span-4 flex items-center justify-start gap-2 pl-4">
+                    <div className="col-span-4 flex items-center justify-start gap-2 pl-6 sm:pr-8">
                       <span className="h-2.5 w-2.5 rounded-full border border-gray-400 bg-stone-900 shadow-xs" />
                       <span className="text-xs font-bold text-gray-200 truncate max-w-[130px]">
                         {game.black}
@@ -484,39 +526,47 @@ export default function GameReviewModal({
                       return (
                         <div
                           key={cat}
-                          className="grid grid-cols-12 px-5 py-3 items-center hover:bg-white/[0.03] transition-colors text-xs font-semibold"
+                          className="grid grid-cols-12 px-6 py-2.5 items-center hover:bg-white/[0.03] transition-colors text-xs font-semibold"
                         >
                           {/* White Count */}
-                          <div className="col-span-4 flex items-center justify-end pr-4">
+                          <div className="col-span-4 flex items-center justify-end pr-6 sm:pr-8">
                             {whiteCount > 0 ? (
                               <span
-                                className={`inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-md font-mono text-xs font-bold tabular-nums border ${meta.badgeBg} ${meta.textColor}`}
+                                className={`inline-flex items-center justify-center min-w-[32px] h-6 px-2 rounded-md font-mono text-xs font-bold tabular-nums border shadow-xs ${meta.badgeBg} ${meta.textColor}`}
                               >
                                 {whiteCount}
                               </span>
                             ) : (
-                              <span className="text-gray-600 font-mono text-xs pr-1.5">—</span>
+                              <span className="inline-flex items-center justify-center min-w-[32px] h-6 px-2 text-gray-600 font-mono text-xs">
+                                0
+                              </span>
                             )}
                           </div>
 
-                          {/* Classification Badge & Label */}
-                          <div className="col-span-4 flex items-center justify-center gap-2.5">
-                            <ClassificationIcon classification={cat} size={22} />
-                            <span className="text-xs font-semibold text-gray-200 tracking-wide">
-                              {meta.label}
-                            </span>
+                          {/* Classification Badge & Label (Fixed-width centered container for vertical alignment) */}
+                          <div className="col-span-4 flex items-center justify-center">
+                            <div className="flex items-center gap-3 w-36">
+                              <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                                <ClassificationIcon classification={cat} size={22} />
+                              </div>
+                              <span className="text-xs font-semibold text-gray-200 tracking-wide">
+                                {meta.label}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Black Count */}
-                          <div className="col-span-4 flex items-center justify-start pl-4">
+                          <div className="col-span-4 flex items-center justify-start pl-6 sm:pl-8">
                             {blackCount > 0 ? (
                               <span
-                                className={`inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-md font-mono text-xs font-bold tabular-nums border ${meta.badgeBg} ${meta.textColor}`}
+                                className={`inline-flex items-center justify-center min-w-[32px] h-6 px-2 rounded-md font-mono text-xs font-bold tabular-nums border shadow-xs ${meta.badgeBg} ${meta.textColor}`}
                               >
                                 {blackCount}
                               </span>
                             ) : (
-                              <span className="text-gray-600 font-mono text-xs pl-1.5">—</span>
+                              <span className="inline-flex items-center justify-center min-w-[32px] h-6 px-2 text-gray-600 font-mono text-xs">
+                                0
+                              </span>
                             )}
                           </div>
                         </div>
@@ -524,6 +574,7 @@ export default function GameReviewModal({
                     })}
                   </div>
                 </div>
+
 
                 {/* Primary CTA: Start Review */}
                 <div className="max-w-3xl mx-auto pt-2 flex justify-center">

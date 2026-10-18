@@ -176,6 +176,7 @@ export interface ImportedGame {
   timeControl?: string;
   date: string;
   opening?: string;
+  url?: string;
   accuracies?: { white: number; black: number };
   rawAnalysis?: Array<{
     eval?: number;

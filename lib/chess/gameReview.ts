@@ -1,11 +1,92 @@
 import { Chess, type Square } from 'chess.js';
 import type { Repertoire, ImportedGame } from '@/types/chess';
+import { db } from '@/lib/db';
 import { RepertoireDAG, fenToNodeId, STARTING_FEN } from './dag';
 import {
   evaluateFenWithStockfish,
   evaluateBatchWithStockfish,
   type PositionEngineEval,
 } from './stockfish';
+
+// In-memory cache for ultra-fast instantaneous retrieval across session
+export const gameReviewMemoryCache = new Map<string, GameReviewResult>();
+
+export function getGameReviewKey(game: ImportedGame): string {
+  if (game.id && game.id.trim() !== '') return game.id.trim();
+  const maybeUrl = (game as unknown as { url?: string }).url;
+  if (maybeUrl && maybeUrl.trim() !== '') return maybeUrl.trim();
+  return `${game.platform || 'chess'}_${game.white}_${game.black}_${game.date}_${(game.pgn || '').slice(0, 80)}`;
+}
+
+
+export async function getCachedGameReview(game: ImportedGame): Promise<GameReviewResult | null> {
+  const key = getGameReviewKey(game);
+  if (gameReviewMemoryCache.has(key)) {
+    return gameReviewMemoryCache.get(key)!;
+  }
+  try {
+    const stored = await db.gameReviews.get(key);
+    if (stored && stored.result) {
+      gameReviewMemoryCache.set(key, stored.result);
+      return stored.result;
+    }
+  } catch (err) {
+    console.warn('Failed to load review from Dexie:', err);
+  }
+  return null;
+}
+
+export async function saveGameReview(
+  game: ImportedGame,
+  userColor: 'white' | 'black',
+  result: GameReviewResult
+): Promise<void> {
+  const key = getGameReviewKey(game);
+  gameReviewMemoryCache.set(key, result);
+  try {
+    await db.gameReviews.put({
+      id: key,
+      gameId: game.id || key,
+      userColor,
+      whiteAccuracy: result.whiteAccuracy,
+      blackAccuracy: result.blackAccuracy,
+      result,
+      createdAt: Date.now(),
+    });
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('cc_reviewed_games') || '{}';
+        const parsed = JSON.parse(raw);
+        parsed[key] = {
+          whiteAccuracy: result.whiteAccuracy,
+          blackAccuracy: result.blackAccuracy,
+          updatedAt: Date.now(),
+        };
+        localStorage.setItem('cc_reviewed_games', JSON.stringify(parsed));
+      } catch {}
+    }
+  } catch (err) {
+    console.warn('Failed to save review to Dexie:', err);
+  }
+}
+
+export async function invalidateGameReview(game: ImportedGame): Promise<void> {
+  const key = getGameReviewKey(game);
+  gameReviewMemoryCache.delete(key);
+  try {
+    await db.gameReviews.delete(key);
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('cc_reviewed_games') || '{}';
+        const parsed = JSON.parse(raw);
+        delete parsed[key];
+        localStorage.setItem('cc_reviewed_games', JSON.stringify(parsed));
+      } catch {}
+    }
+  } catch (err) {
+    console.warn('Failed to delete review from Dexie:', err);
+  }
+}
 
 export type MoveClassification =
   | 'brilliant'
@@ -280,9 +361,20 @@ export async function analyzeFullGameAsync(
   userColor: 'white' | 'black' = 'white',
   dag?: RepertoireDAG,
   repertoire?: Repertoire,
-  onProgress?: (progressPercent: number, message: string) => void
+  onProgress?: (progressPercent: number, message: string) => void,
+  forceReanalyze = false
 ): Promise<GameReviewResult> {
+  // 0. Check persistent Dexie & in-memory cache unless forced re-analysis
+  if (!forceReanalyze) {
+    const cached = await getCachedGameReview(game);
+    if (cached) {
+      if (onProgress) onProgress(100, 'Loaded existing review from database (Instant)');
+      return cached;
+    }
+  }
+
   const chess = new Chess();
+
   try {
     chess.loadPgn(game.pgn);
   } catch {
@@ -564,7 +656,7 @@ export async function analyzeFullGameAsync(
     summaryComment = 'Black took firm control and executed the tactical conversion cleanly.';
   }
 
-  return {
+  const result: GameReviewResult = {
     whiteAccuracy,
     blackAccuracy,
     moves: reviewMoves,
@@ -574,4 +666,10 @@ export async function analyzeFullGameAsync(
     summaryComment,
     isRealStockfish: true,
   };
+
+  // Persist into IndexedDB (Dexie) and Memory Cache
+  await saveGameReview(game, userColor, result);
+
+  return result;
 }
+

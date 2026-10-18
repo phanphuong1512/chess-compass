@@ -36,6 +36,7 @@ import { fetchChessComGames } from '@/lib/api/chesscom';
 import { RepertoireDAG, fenToNodeId, STARTING_FEN } from '@/lib/chess/dag';
 import { createCard } from '@/lib/fsrs/scheduler';
 import { db } from '@/lib/db';
+import { getGameReviewKey } from '@/lib/chess/gameReview';
 import ChessBoard from './ChessBoard';
 import GameReviewModal from './GameReviewModal';
 
@@ -96,6 +97,31 @@ export default function GamesDashboard({
   const [isSyncing, setIsSyncing] = useState(false);
   const [games, setGames] = useState<ImportedGame[]>([]);
   const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now() - 20 * 3600 * 1000);
+  const [reviewedGames, setReviewedGames] = useState<Record<string, { whiteAccuracy: number; blackAccuracy: number }>>({});
+
+  // Load reviews from Dexie & localStorage to instantly identify reviewed games
+  useEffect(() => {
+    const loadReviewedGames = async () => {
+      const map: Record<string, { whiteAccuracy: number; blackAccuracy: number }> = {};
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('cc_reviewed_games');
+          if (raw) Object.assign(map, JSON.parse(raw));
+        } catch {}
+      }
+      try {
+        const stored = await db.gameReviews.toArray();
+        for (const item of stored) {
+          map[item.id] = {
+            whiteAccuracy: item.whiteAccuracy,
+            blackAccuracy: item.blackAccuracy,
+          };
+        }
+      } catch {}
+      setReviewedGames(map);
+    };
+    loadReviewedGames();
+  }, [activePreviewGame]);
 
   // Filters
   const [filterRepertoire, setFilterRepertoire] = useState<string>('all');
@@ -641,6 +667,9 @@ export default function GamesDashboard({
             </div>
           ) : (
             filteredGames.slice(0, 40).map((game) => {
+              const gameKey = getGameReviewKey(game);
+              const reviewMeta = reviewedGames[gameKey];
+              const isReviewed = Boolean(reviewMeta);
               const isWin =
                 (game.userColor === 'white' && game.result === '1-0') ||
                 (game.userColor === 'black' && game.result === '0-1');
@@ -710,6 +739,13 @@ export default function GamesDashboard({
 
                   {/* Column 3: Repertoire & Deviation Badges */}
                   <div className="col-span-3 flex flex-wrap items-center gap-1.5 min-w-0">
+                    {isReviewed && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[0.62rem] font-bold text-emerald-400 border border-emerald-500/30">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />
+                        <span>Reviewed ({reviewMeta?.whiteAccuracy ?? 0}% / {reviewMeta?.blackAccuracy ?? 0}%)</span>
+                      </span>
+                    )}
+
                     {game.repertoireMatch?.status === 'off-book' ? (
                       <span className="inline-flex items-center gap-1 rounded-md bg-white/5 px-2 py-0.5 text-[0.65rem] font-semibold text-gray-400 border border-white/5">
                         ⊘ Off-book
@@ -759,7 +795,20 @@ export default function GamesDashboard({
 
                   {/* Column 5: Action Button */}
                   <div className="col-span-2 flex items-center justify-end">
-                    {game.repertoireMatch?.status === 'mistake' || game.repertoireMatch?.status === 'deviated' ? (
+                    {isReviewed ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivePreviewGame(game);
+                          setPreviewPly(0);
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 transition-colors active:scale-[0.98] cursor-pointer shadow-xs"
+                        title="Review ready to view instantly"
+                      >
+                        <BarChart3 className="h-3.5 w-3.5 fill-stone-950" />
+                        <span>View Review</span>
+                      </button>
+                    ) : game.repertoireMatch?.status === 'mistake' || game.repertoireMatch?.status === 'deviated' ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -769,7 +818,7 @@ export default function GamesDashboard({
                         className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors cursor-pointer"
                       >
                         <BarChart3 className="h-3.5 w-3.5 text-amber-400" />
-                        <span>View analysis</span>
+                        <span>Review Game</span>
                       </button>
                     ) : (
                       <button
@@ -781,10 +830,11 @@ export default function GamesDashboard({
                         className="flex items-center gap-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 transition-colors active:scale-[0.98] cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        <span>View game</span>
+                        <span>Review Game</span>
                       </button>
                     )}
                   </div>
+
                 </div>
               );
             })
