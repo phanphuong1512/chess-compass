@@ -717,7 +717,7 @@ export default function StudyPage() {
                   className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-gray-400 hover:text-white transition-colors cursor-pointer"
                   title="Flip board (F)"
                 >
-                  <Layers className="h-4 w-4" />
+                  <RotateCcw className="h-4 w-4" />
                 </button>
               </div>
             ) : studyNavTab === 'repertoire' && screenMode === 'dashboard' ? (

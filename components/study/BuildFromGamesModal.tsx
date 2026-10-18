@@ -18,6 +18,7 @@ import { fetchChessComGames } from '@/lib/api/chesscom';
 import { fenToNodeId, STARTING_FEN } from '@/lib/chess/dag';
 import { db } from '@/lib/db';
 import { createCard } from '@/lib/fsrs/scheduler';
+import { ChessPawnIcon } from '@/components/icons/ChessPieceIcons';
 
 export interface DetectedOpening {
   key: string;
@@ -599,8 +600,8 @@ export default function BuildFromGamesModal({
                   }`}
                 >
                   {/* Green Pawn Icon Circle */}
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 border border-white/10 text-emerald-400 text-xl font-bold">
-                    ♟
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <ChessPawnIcon color="black" size={22} className="text-emerald-400 fill-emerald-500" />
                   </div>
 
                   <div className="flex-1 min-w-0">

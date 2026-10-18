@@ -3,18 +3,19 @@
 import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Flame,
-  CheckCircle2,
+  Fire,
+  CheckCircle,
   XCircle,
-  HelpCircle,
-  RotateCcw,
-  Sparkles,
+  Question,
+  ArrowCounterClockwise,
+  Sparkle,
   Trophy,
   ArrowRight,
-  Zap,
+  Lightning,
   Lightbulb,
-  Puzzle as PuzzleIcon,
-} from 'lucide-react';
+  PuzzlePiece,
+} from '@phosphor-icons/react';
+import { TurnIndicatorBadge } from '@/components/icons/ChessPieceIcons';
 import ChessBoard from './ChessBoard';
 
 interface Puzzle {
@@ -148,7 +149,7 @@ export default function PuzzlesView() {
           <div>
             <div className="flex items-center gap-2.5">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400/20 text-amber-400 font-bold">
-                <PuzzleIcon className="h-4 w-4" />
+                <PuzzlePiece size={18} weight="duotone" />
               </span>
               <h1 className="text-2xl font-bold tracking-tight text-white">Daily Tactical Puzzles</h1>
             </div>
@@ -160,12 +161,12 @@ export default function PuzzlesView() {
           {/* Stats Badges */}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 rounded-xl bg-white/5 border border-white/5 px-3 py-1.5 text-xs">
-              <Zap className="h-4 w-4 text-amber-400" />
+              <Lightning size={16} weight="fill" className="text-amber-400" />
               <span className="text-gray-400">Rating:</span>
               <span className="font-bold text-white tabular-nums">{userRating}</span>
             </div>
             <div className="flex items-center gap-1.5 rounded-xl bg-orange-500/10 border border-orange-500/20 px-3 py-1.5 text-xs text-orange-400 font-bold">
-              <Flame className="h-4 w-4" />
+              <Fire size={16} weight="fill" />
               <span className="tabular-nums">Streak: {streak}</span>
             </div>
           </div>
@@ -176,9 +177,10 @@ export default function PuzzlesView() {
           {/* Left: ChessBoard */}
           <div className="lg:col-span-7 rounded-2xl border border-white/10 bg-[#111726] p-4">
             <div className="mb-3 flex items-center justify-between px-1">
-              <span className="text-xs font-bold text-gray-300">
-                {currentPuzzle.turn === 'white' ? '⚪ White to move' : '⚫ Black to move'}
-              </span>
+              <TurnIndicatorBadge
+                turn={currentPuzzle.turn}
+                label={currentPuzzle.turn === 'white' ? 'White to move' : 'Black to move'}
+              />
               <span className="rounded-full bg-white/5 px-2.5 py-0.5 text-[0.65rem] font-bold text-gray-400 font-mono">
                 Puzzle #{puzzleIndex + 1} · {currentPuzzle.rating}
               </span>
@@ -214,7 +216,7 @@ export default function PuzzlesView() {
                     animate={{ opacity: 1, y: 0 }}
                     className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 flex items-center gap-3"
                   >
-                    <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                    <CheckCircle size={20} weight="fill" className="text-emerald-400 shrink-0" />
                     <div>
                       <p className="text-xs font-bold text-emerald-300">Brilliant! That is correct.</p>
                       <p className="text-[0.7rem] text-gray-300 font-mono mt-0.5">
@@ -230,7 +232,7 @@ export default function PuzzlesView() {
                     animate={{ opacity: 1, y: 0 }}
                     className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 flex items-center gap-3"
                   >
-                    <XCircle className="h-5 w-5 text-rose-400 shrink-0" />
+                    <XCircle size={20} weight="fill" className="text-rose-400 shrink-0" />
                     <div>
                       <p className="text-xs font-bold text-rose-300">Not quite the best line.</p>
                       <p className="text-[0.7rem] text-gray-400 mt-0.5">
@@ -244,7 +246,7 @@ export default function PuzzlesView() {
               {/* Hint Box */}
               {showHint && !solved && (
                 <div className="rounded-xl bg-white/5 p-3 text-xs text-amber-300 border border-amber-500/20 flex items-center gap-2">
-                  <Lightbulb className="h-4 w-4 shrink-0" />
+                  <Lightbulb size={16} weight="duotone" className="shrink-0" />
                   <span>Hint: Look for active knight jump or center breaks.</span>
                 </div>
               )}
@@ -265,7 +267,7 @@ export default function PuzzlesView() {
                       onClick={() => setShowHint(true)}
                       className="flex-1 rounded-xl bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-bold text-gray-300 transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5"
                     >
-                      <Lightbulb className="h-3.5 w-3.5" />
+                      <Lightbulb size={15} weight="duotone" />
                       <span>Hint</span>
                     </button>
                     <button
@@ -280,10 +282,10 @@ export default function PuzzlesView() {
                   <button
                     type="button"
                     onClick={handleNextPuzzle}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 px-4 py-2.5 text-xs font-bold text-stone-950 transition-colors duration-150 cursor-pointer active:scale-[0.98]"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 px-4 py-2.5 text-xs font-bold text-stone-950 transition-colors duration-150 cursor-pointer active:scale-[0.98] shadow-xs"
                   >
                     <span>Next Puzzle</span>
-                    <ArrowRight className="h-4 w-4" />
+                    <ArrowRight size={16} weight="bold" />
                   </button>
                 )}
               </div>

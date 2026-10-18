@@ -20,6 +20,8 @@ import {
   HelpCircle,
   ArrowRight,
 } from 'lucide-react';
+import { Compass, Target as PhosphorTarget } from '@phosphor-icons/react';
+import { ChessKingIcon, ChessKnightIcon, ChessPawnIcon } from '@/components/icons/ChessPieceIcons';
 import type { Repertoire, FSRSCard, RepertoireEdge } from '@/types/chess';
 
 interface RepertoireDashboardProps {
@@ -34,28 +36,28 @@ interface RepertoireDashboardProps {
 }
 
 // Preset visual themes for covers matching ChessAtlas artwork
-const COVER_THEMES: Record<string, { bg: string; symbol: string; badge?: string }> = {
+const COVER_THEMES: Record<string, { bg: string; piece: 'knight' | 'king' | 'pawn'; badge?: string }> = {
   rep_vienna: {
     bg: 'bg-emerald-950/70 border-emerald-500/30 text-emerald-300',
-    symbol: '♞',
+    piece: 'knight',
     badge: 'Library',
   },
   rep_white_e4: {
     bg: 'bg-amber-950/70 border-amber-500/30 text-amber-300',
-    symbol: '♚',
+    piece: 'king',
   },
   rep_black_sicilian: {
     bg: 'bg-slate-900 border-slate-700 text-slate-200',
-    symbol: '♞',
+    piece: 'knight',
     badge: '1 mistake',
   },
   default_white: {
     bg: 'bg-amber-950/70 border-amber-500/30 text-amber-300',
-    symbol: '♙',
+    piece: 'pawn',
   },
   default_black: {
     bg: 'bg-slate-900 border-slate-700 text-slate-200',
-    symbol: '♟',
+    piece: 'pawn',
   },
 };
 
@@ -154,9 +156,15 @@ export default function RepertoireDashboard({
           <div className="flex gap-4 items-start mb-4">
             {/* Thumbnail Cover */}
             <div
-              className={`relative h-14 w-14 shrink-0 rounded-xl border flex items-center justify-center font-bold text-2xl select-none ${theme.bg}`}
+              className={`relative h-14 w-14 shrink-0 rounded-xl border flex items-center justify-center select-none shadow-md ${theme.bg}`}
             >
-              <span>{theme.symbol}</span>
+              {theme.piece === 'knight' ? (
+                <ChessKnightIcon color={rep.color} size={28} />
+              ) : theme.piece === 'king' ? (
+                <ChessKingIcon color={rep.color} size={28} />
+              ) : (
+                <ChessPawnIcon color={rep.color} size={28} />
+              )}
             </div>
 
             {/* Title & Metadata */}
@@ -324,8 +332,8 @@ export default function RepertoireDashboard({
             className="flex items-center justify-between rounded-2xl border border-white/[0.08] bg-[#141B29]/90 p-4 px-5 backdrop-blur-md shadow-md hover:border-red-500/30 hover:bg-[#182032] transition-all cursor-pointer group"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold">
-                🎯
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/20 text-rose-400">
+                <PhosphorTarget size={14} weight="bold" />
               </div>
               <span className="text-xs font-bold tracking-wider uppercase text-rose-400 group-hover:text-rose-300 transition-colors">
                 DRILL MISTAKES
@@ -444,9 +452,9 @@ export default function RepertoireDashboard({
       <div className="pt-2">
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            {/* Mascot Icon: Penguin with scarf */}
-            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-700 via-sky-600 to-teal-500 shadow-xl border border-white/10 shrink-0">
-              <span className="text-2xl select-none">🐧</span>
+            {/* Mascot Icon: Chess Compass Emblem */}
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-700 via-sky-600 to-teal-500 shadow-xl border border-white/10 shrink-0 text-white">
+              <Compass size={28} weight="duotone" className="drop-shadow-md" />
               <div className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-400 border-2 border-[#0B0F17]" />
             </div>
 
@@ -508,7 +516,7 @@ export default function RepertoireDashboard({
         {/* ========================================================================= */}
         <div className="mb-8">
           <div className="mb-3.5 flex items-center gap-2">
-            <span className="text-sm">♔</span>
+            <ChessKingIcon color="white" size={18} />
             <h3 className="text-xs font-bold tracking-wider uppercase text-gray-300">
               White
             </h3>
@@ -527,7 +535,7 @@ export default function RepertoireDashboard({
         {/* ========================================================================= */}
         <div>
           <div className="mb-3.5 flex items-center gap-2">
-            <span className="text-sm">♚</span>
+            <ChessKingIcon color="black" size={18} />
             <h3 className="text-xs font-bold tracking-wider uppercase text-gray-300">
               Black
             </h3>

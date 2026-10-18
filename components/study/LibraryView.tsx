@@ -12,6 +12,8 @@ import {
   Layers,
   Search,
 } from 'lucide-react';
+import { Books } from '@phosphor-icons/react';
+import { TurnIndicatorBadge } from '@/components/icons/ChessPieceIcons';
 import type { ChessColor } from '@/types/chess';
 
 interface LibraryCourse {
@@ -170,9 +172,9 @@ export default function LibraryView({ onAddCourseToRepertoire }: LibraryViewProp
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400/20 text-amber-400 font-bold">
-                🏛️
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-400/20 text-amber-400 font-bold border border-amber-400/30 shadow-xs">
+                <Books size={22} weight="duotone" />
               </span>
               <h1 className="text-2xl font-extrabold text-white">Opening Repertoire Library</h1>
             </div>
@@ -241,10 +243,12 @@ export default function LibraryView({ onAddCourseToRepertoire }: LibraryViewProp
                   {/* Visual Header / Banner */}
                   <div className={`relative h-28 w-full bg-gradient-to-br ${course.gradient} p-4 flex flex-col justify-between overflow-hidden`}>
                     <div className="flex items-center justify-between">
-                      <span className="rounded-full bg-black/40 backdrop-blur-xs px-2.5 py-0.5 text-[0.65rem] font-bold text-white border border-white/10">
-                        {course.color === 'white' ? '⚪ White Repertoire' : '⚫ Black Repertoire'}
-                      </span>
-                      <div className="flex items-center gap-1 text-[0.65rem] font-bold text-amber-300 bg-black/40 px-2 py-0.5 rounded-full">
+                      <TurnIndicatorBadge
+                        turn={course.color}
+                        label={course.color === 'white' ? 'White Repertoire' : 'Black Repertoire'}
+                        className="text-[0.68rem]"
+                      />
+                      <div className="flex items-center gap-1 text-[0.65rem] font-bold text-amber-300 bg-black/40 px-2 py-0.5 rounded-full border border-white/10">
                         <Star className="h-3 w-3 fill-amber-300" />
                         <span>{course.rating}</span>
                       </div>

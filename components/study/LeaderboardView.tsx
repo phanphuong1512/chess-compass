@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
 import { useAuth } from '@/lib/auth/useAuth';
-import { Trophy, Flame, ArrowUp, ArrowDown } from 'lucide-react';
+import { Trophy, Fire, ArrowUp, ArrowDown } from '@phosphor-icons/react';
 
 interface LeaderboardUser {
   rank: number;
@@ -87,7 +87,7 @@ export default function LeaderboardView() {
         <div className="rounded-2xl border border-white/10 bg-[#121724] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-400/10 text-amber-400 font-extrabold text-2xl">
-              <Trophy className="h-6 w-6" />
+              <Trophy size={26} weight="duotone" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -118,11 +118,11 @@ export default function LeaderboardView() {
           <div className="p-4 border-b border-white/5 flex items-center justify-between text-xs text-gray-400">
             <span className="font-semibold text-xs text-gray-300">Weekly Standings</span>
             <div className="flex items-center gap-4 text-xs">
-              <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                <ArrowUp className="h-3 w-3" /> Promotion (Top 5)
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                <ArrowUp size={13} weight="bold" /> Promotion (Top 5)
               </span>
-              <span className="flex items-center gap-1 text-rose-400 font-medium">
-                <ArrowDown className="h-3 w-3" /> Relegation (Bottom 3)
+              <span className="flex items-center gap-1.5 text-rose-400 font-medium">
+                <ArrowDown size={13} weight="bold" /> Relegation (Bottom 3)
               </span>
             </div>
           </div>
@@ -195,7 +195,7 @@ export default function LeaderboardView() {
                   {/* XP & Streak */}
                   <div className="flex items-center gap-6">
                     <div className="flex items-center gap-1 text-orange-400 text-xs font-bold tabular-nums">
-                      <Flame className="h-3.5 w-3.5" />
+                      <Fire size={14} weight="fill" />
                       <span>{player.streak}</span>
                     </div>
 

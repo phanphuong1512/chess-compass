@@ -37,6 +37,8 @@ import {
 } from '@/lib/chess/gameReview';
 import ChessBoard from './ChessBoard';
 import { playMoveSound } from '@/lib/chess/audio';
+import { ClassificationIcon } from '@/components/icons/MoveClassificationIcons';
+import { GraduationCap } from '@phosphor-icons/react';
 
 interface GameReviewModalProps {
   game: ImportedGame;
@@ -345,8 +347,8 @@ export default function GameReviewModal({
           {isLoading ? (
             /* Loading State with Real Progress Bar (Screenshot 1) */
             <div className="h-full flex flex-col items-center justify-center p-8 space-y-6 max-w-lg mx-auto text-center">
-              <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-400/10 border border-amber-400/20 text-3xl">
-                🐱
+              <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-400/10 border border-amber-400/20 text-amber-400">
+                <GraduationCap size={32} weight="duotone" />
                 <Loader2 className="absolute -top-1 -right-1 h-5 w-5 animate-spin text-amber-400" />
               </div>
 
@@ -379,8 +381,8 @@ export default function GameReviewModal({
               <div className="h-full overflow-y-auto p-6 space-y-6">
                 {/* Coach Speech Bubble */}
                 <div className="flex items-start gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/10 max-w-3xl mx-auto">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/20 text-amber-400 text-xl font-bold shrink-0">
-                    🐱
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/20 text-amber-400 font-bold shrink-0">
+                    <GraduationCap size={26} weight="duotone" />
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
@@ -439,13 +441,40 @@ export default function GameReviewModal({
                 </div>
 
                 {/* Move Classification Breakdown Table */}
-                <div className="max-w-3xl mx-auto rounded-xl border border-white/10 bg-[#161D2C] overflow-hidden">
-                  <div className="grid grid-cols-3 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-white/[0.08]">
-                    <span className="text-center">{game.white}</span>
-                    <span className="text-center">Move Classification</span>
-                    <span className="text-center">{game.black}</span>
+                <div className="max-w-3xl mx-auto rounded-2xl border border-white/10 bg-[#141A28] shadow-xl overflow-hidden">
+                  {/* Table Header */}
+                  <div className="grid grid-cols-12 px-5 py-3 text-xs font-bold uppercase tracking-wider text-gray-400 border-b border-white/[0.08] bg-[#0E131E]/60 items-center">
+                    {/* White Player Column */}
+                    <div className="col-span-4 flex items-center justify-end gap-2 pr-4">
+                      <span className="h-2.5 w-2.5 rounded-full border border-gray-300 bg-white shadow-xs" />
+                      <span className="text-xs font-bold text-gray-200 truncate max-w-[130px]">
+                        {game.white}
+                      </span>
+                      {game.whiteRating && (
+                        <span className="text-[0.68rem] font-mono text-gray-400">({game.whiteRating})</span>
+                      )}
+                    </div>
+
+                    {/* Middle Column Label */}
+                    <div className="col-span-4 flex items-center justify-center">
+                      <span className="text-[0.68rem] font-bold uppercase tracking-widest text-gray-400">
+                        Classification
+                      </span>
+                    </div>
+
+                    {/* Black Player Column */}
+                    <div className="col-span-4 flex items-center justify-start gap-2 pl-4">
+                      <span className="h-2.5 w-2.5 rounded-full border border-gray-400 bg-stone-900 shadow-xs" />
+                      <span className="text-xs font-bold text-gray-200 truncate max-w-[130px]">
+                        {game.black}
+                      </span>
+                      {game.blackRating && (
+                        <span className="text-[0.68rem] font-mono text-gray-400">({game.blackRating})</span>
+                      )}
+                    </div>
                   </div>
 
+                  {/* Table Rows */}
                   <div className="divide-y divide-white/[0.04]">
                     {classificationOrder.map((cat) => {
                       const meta = CLASSIFICATION_META[cat];
@@ -455,37 +484,39 @@ export default function GameReviewModal({
                       return (
                         <div
                           key={cat}
-                          className="grid grid-cols-3 px-5 py-2.5 items-center hover:bg-white/[0.02] text-xs font-semibold"
+                          className="grid grid-cols-12 px-5 py-3 items-center hover:bg-white/[0.03] transition-colors text-xs font-semibold"
                         >
-                          {/* White count */}
-                          <div className="text-center font-mono tabular-nums font-bold text-white">
+                          {/* White Count */}
+                          <div className="col-span-4 flex items-center justify-end pr-4">
                             {whiteCount > 0 ? (
-                              <span className={whiteCount > 0 ? meta.textColor : 'text-gray-500'}>
+                              <span
+                                className={`inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-md font-mono text-xs font-bold tabular-nums border ${meta.badgeBg} ${meta.textColor}`}
+                              >
                                 {whiteCount}
                               </span>
                             ) : (
-                              <span className="text-gray-600">0</span>
+                              <span className="text-gray-600 font-mono text-xs pr-1.5">—</span>
                             )}
                           </div>
 
-                          {/* Category Label with Badge */}
-                          <div className="flex items-center justify-center gap-2">
-                            <span
-                              className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[0.65rem] font-bold border ${meta.badgeBg} ${meta.textColor}`}
-                            >
-                              {meta.short}
+                          {/* Classification Badge & Label */}
+                          <div className="col-span-4 flex items-center justify-center gap-2.5">
+                            <ClassificationIcon classification={cat} size={22} />
+                            <span className="text-xs font-semibold text-gray-200 tracking-wide">
+                              {meta.label}
                             </span>
-                            <span className="text-gray-300 font-medium">{meta.label}</span>
                           </div>
 
-                          {/* Black count */}
-                          <div className="text-center font-mono tabular-nums font-bold text-white">
+                          {/* Black Count */}
+                          <div className="col-span-4 flex items-center justify-start pl-4">
                             {blackCount > 0 ? (
-                              <span className={blackCount > 0 ? meta.textColor : 'text-gray-500'}>
+                              <span
+                                className={`inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-md font-mono text-xs font-bold tabular-nums border ${meta.badgeBg} ${meta.textColor}`}
+                              >
                                 {blackCount}
                               </span>
                             ) : (
-                              <span className="text-gray-600">0</span>
+                              <span className="text-gray-600 font-mono text-xs pl-1.5">—</span>
                             )}
                           </div>
                         </div>
@@ -545,17 +576,12 @@ export default function GameReviewModal({
 
                       {/* Move quality badge on top left */}
                       {currentMove && (
-                        <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/85 backdrop-blur-sm border border-white/10 text-xs font-bold shadow-md">
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{
-                              backgroundColor: CLASSIFICATION_META[currentMove.classification].dotColor,
-                            }}
-                          />
+                        <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-stone-950/90 backdrop-blur-md border border-white/10 text-xs font-bold shadow-xl">
+                          <ClassificationIcon classification={currentMove.classification} size={18} />
                           <span className={CLASSIFICATION_META[currentMove.classification].textColor}>
                             {CLASSIFICATION_META[currentMove.classification].label} ({currentMove.san})
                           </span>
-                          <span className="text-gray-400 font-normal text-[0.65rem] border-l border-white/20 pl-1.5 ml-1">
+                          <span className="text-gray-400 font-normal text-[0.65rem] border-l border-white/20 pl-2 ml-0.5">
                             {currentMove.engineSource === 'lichess-server'
                               ? 'Lichess SF'
                               : currentMove.engineSource === 'lichess-cloud'
@@ -706,13 +732,13 @@ export default function GameReviewModal({
                       <>
                         {/* Classification Badge Tag & Eval Score */}
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <ClassificationIcon classification={currentMove.classification} size={22} />
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${
                                 CLASSIFICATION_META[currentMove.classification].badgeBg
                               } ${CLASSIFICATION_META[currentMove.classification].textColor}`}
                             >
-                              <span>{CLASSIFICATION_META[currentMove.classification].short}</span>
                               <span>
                                 {currentMove.san} is {CLASSIFICATION_META[currentMove.classification].label}
                               </span>
@@ -860,15 +886,7 @@ export default function GameReviewModal({
                                   }`}
                                 >
                                   <span className="font-semibold">{whiteMove.san}</span>
-                                  <span
-                                    className={`inline-flex text-[0.65rem] font-bold ${
-                                      currentPly === whiteMove.ply + 1
-                                        ? 'text-stone-950'
-                                        : CLASSIFICATION_META[whiteMove.classification].textColor
-                                    }`}
-                                  >
-                                    {CLASSIFICATION_META[whiteMove.classification].short}
-                                  </span>
+                                  <ClassificationIcon classification={whiteMove.classification} size={15} />
                                 </button>
                               )}
                             </div>
@@ -891,15 +909,7 @@ export default function GameReviewModal({
                                   }`}
                                 >
                                   <span className="font-semibold">{blackMove.san}</span>
-                                  <span
-                                    className={`inline-flex text-[0.65rem] font-bold ${
-                                      currentPly === blackMove.ply + 1
-                                        ? 'text-stone-950'
-                                        : CLASSIFICATION_META[blackMove.classification].textColor
-                                    }`}
-                                  >
-                                    {CLASSIFICATION_META[blackMove.classification].short}
-                                  </span>
+                                  <ClassificationIcon classification={blackMove.classification} size={15} />
                                 </button>
                               )}
                             </div>

@@ -2,7 +2,14 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, X, SkipForward, RotateCcw, Trophy, Flame, Target } from 'lucide-react';
+import {
+  Check,
+  X,
+  ArrowCounterClockwise,
+  Trophy,
+  Fire,
+  Target,
+} from '@phosphor-icons/react';
 import ChessBoard from './ChessBoard';
 import type { FSRSCard, FSRSRating, RepertoireNode, RepertoireEdge } from '@/types/chess';
 import { scheduleReview, formatInterval, predictIntervals, getDueCards } from '@/lib/fsrs/scheduler';
@@ -82,7 +89,7 @@ export default function TrainingSession({
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col items-center justify-center gap-6 rounded-2xl border border-white/10 bg-[#111827]/80 p-8 backdrop-blur-md"
       >
-        <Trophy className="h-16 w-16 text-[#10B981]" />
+        <Trophy size={56} weight="duotone" className="text-[#10B981]" />
         <h2 className="text-2xl font-bold text-white">Session Complete!</h2>
         <div className="grid grid-cols-3 gap-6 text-center">
           <div>
@@ -115,13 +122,13 @@ export default function TrainingSession({
       <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#111827]/80 px-4 py-2 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
-            <Target className="h-4 w-4 text-[#10B981]" />
+            <Target size={16} weight="duotone" className="text-[#10B981]" />
             <span className="text-sm text-gray-300">
               {currentIndex + 1}/{dueCards.length}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Flame className="h-4 w-4 text-orange-400" />
+            <Fire size={16} weight="fill" className="text-orange-400" />
             <span className="text-sm text-orange-300">{streak}</span>
           </div>
         </div>
@@ -153,7 +160,7 @@ export default function TrainingSession({
             className="rounded-xl border border-[#10B981]/30 bg-[#10B981]/10 p-4"
           >
             <div className="flex items-center gap-2 mb-3">
-              <Check className="h-5 w-5 text-[#10B981]" />
+              <Check size={18} weight="bold" className="text-[#10B981]" />
               <span className="font-semibold text-[#10B981]">Correct! {expectedMove.san}</span>
             </div>
             <div className="flex gap-2">
@@ -187,7 +194,7 @@ export default function TrainingSession({
             className="rounded-xl border border-red-500/30 bg-red-500/10 p-4"
           >
             <div className="flex items-center gap-2 mb-3">
-              <X className="h-5 w-5 text-red-400" />
+              <X size={18} weight="bold" className="text-red-400" />
               <span className="font-semibold text-red-400">
                 Incorrect! The move was: <span className="font-mono">{expectedMove.san}</span>
               </span>
@@ -195,10 +202,10 @@ export default function TrainingSession({
             <button
               type="button"
               onClick={() => handleRating(1)}
-              className="w-full rounded-lg bg-red-500/20 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/30"
+              className="w-full rounded-lg bg-red-500/20 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/30 flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <RotateCcw className="mr-1.5 inline h-3.5 w-3.5" />
-              Again — Review soon
+              <ArrowCounterClockwise size={15} weight="bold" />
+              <span>Again — Review soon</span>
             </button>
           </motion.div>
         )}

@@ -13,6 +13,12 @@ import {
   ChevronRight,
   Check
 } from 'lucide-react';
+import {
+  ChessKnightIcon,
+  ChessPawnIcon,
+  ChessKingIcon,
+  ChessBishopIcon,
+} from '@/components/icons/ChessPieceIcons';
 import type { ChessColor, Repertoire } from '@/types/chess';
 
 interface NewRepertoireModalProps {
@@ -27,11 +33,16 @@ interface NewRepertoireModalProps {
   onOpenGameSync?: () => void;
 }
 
-const COVER_STYLES = [
-  { id: 'vienna', label: 'Castle & Knight', gradient: 'from-emerald-800 to-amber-900', icon: '♞' },
-  { id: 'sicilian', label: 'Dark Citadel', gradient: 'from-purple-900 to-slate-900', icon: '♟' },
-  { id: 'classical', label: 'Royal Sun', gradient: 'from-amber-700 to-yellow-900', icon: '♚' },
-  { id: 'caro', label: 'Forest Citadel', gradient: 'from-teal-900 to-emerald-950', icon: '♝' },
+const COVER_STYLES: Array<{
+  id: string;
+  label: string;
+  gradient: string;
+  piece: 'knight' | 'pawn' | 'king' | 'bishop';
+}> = [
+  { id: 'vienna', label: 'Castle & Knight', gradient: 'from-emerald-800 to-amber-900', piece: 'knight' },
+  { id: 'sicilian', label: 'Dark Citadel', gradient: 'from-purple-900 to-slate-900', piece: 'pawn' },
+  { id: 'classical', label: 'Royal Sun', gradient: 'from-amber-700 to-yellow-900', piece: 'king' },
+  { id: 'caro', label: 'Forest Citadel', gradient: 'from-teal-900 to-emerald-950', piece: 'bishop' },
 ];
 
 export default function NewRepertoireModal({
@@ -206,7 +217,17 @@ export default function NewRepertoireModal({
                         : 'border-white/10 opacity-70 hover:opacity-100 hover:border-white/30'
                     }`}
                   >
-                    <span className="text-xl leading-none mb-1 drop-shadow-md">{c.icon}</span>
+                    <div className="mb-1 drop-shadow-md flex items-center justify-center">
+                      {c.piece === 'knight' ? (
+                        <ChessKnightIcon color={color} size={22} />
+                      ) : c.piece === 'pawn' ? (
+                        <ChessPawnIcon color={color} size={22} />
+                      ) : c.piece === 'king' ? (
+                        <ChessKingIcon color={color} size={22} />
+                      ) : (
+                        <ChessBishopIcon color={color} size={22} />
+                      )}
+                    </div>
                     <span className="text-[0.65rem] font-medium text-white/90 truncate w-full">
                       {c.label}
                     </span>

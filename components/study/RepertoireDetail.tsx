@@ -17,6 +17,8 @@ import {
   ChevronRight,
   CheckCircle2
 } from 'lucide-react';
+import { CastleTurret } from '@phosphor-icons/react';
+import { ChessKnightIcon } from '@/components/icons/ChessPieceIcons';
 import type { Repertoire, RepertoireNode, RepertoireEdge, FSRSCard } from '@/types/chess';
 
 interface RepertoireDetailProps {
@@ -168,8 +170,10 @@ export default function RepertoireDetail({
           <div className="flex gap-5 items-start">
             {/* Cover Illustration Artwork */}
             <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#064E3B] via-[#047857] to-[#B45309] flex items-center justify-center shadow-lg">
-              <span className="text-4xl drop-shadow-md select-none">🏰</span>
-              <span className="absolute bottom-1.5 right-2 text-sm">♞</span>
+              <CastleTurret size={48} weight="duotone" className="text-white drop-shadow-md" />
+              <div className="absolute bottom-2 right-2 p-1 rounded-lg bg-black/40 border border-white/10 shadow-xs">
+                <ChessKnightIcon color={repertoire.color} size={16} />
+              </div>
             </div>
 
             {/* Title & Metadata */}

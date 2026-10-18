@@ -4,17 +4,17 @@ import React, { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
 import {
-  Award,
-  CheckCircle2,
+  Medal,
+  CheckCircle,
   Lock,
   Compass,
   Brain,
-  Crosshair,
+  Target,
   BookOpen,
   Globe,
-  Shield,
+  ShieldCheck,
   GitFork,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 
 interface Achievement {
   id: string;
@@ -70,7 +70,7 @@ export default function AchievementsView() {
         id: 'ach_deviation_hunter',
         title: 'Deviation Hunter',
         description: 'Detect and inspect deviations from your real games.',
-        icon: Crosshair,
+        icon: Target,
         unlocked: devCount >= 5,
         progress: Math.min(100, Math.round((devCount / 5) * 100)),
         progressText: `${devCount} / 5 deviations`,
@@ -100,7 +100,7 @@ export default function AchievementsView() {
         id: 'ach_ironclad_retention',
         title: 'Ironclad Retention',
         description: 'Reach high memory stability across 5 positions.',
-        icon: Shield,
+        icon: ShieldCheck,
         unlocked: masteredCount >= 5,
         progress: Math.min(100, Math.round((masteredCount / 5) * 100)),
         progressText: `${masteredCount} / 5 mastered positions`,
@@ -130,7 +130,7 @@ export default function AchievementsView() {
         <div className="rounded-2xl border border-white/10 bg-[#121724] p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-400/10 text-amber-400">
-              <Award className="h-6 w-6" />
+              <Medal size={24} weight="duotone" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">Your Achievements</h1>
@@ -169,7 +169,7 @@ export default function AchievementsView() {
                 key={ach.id}
                 className={`rounded-2xl border p-5 flex flex-col justify-between transition-colors duration-150 ${
                   ach.unlocked
-                    ? 'border-amber-400/20 bg-[#131926] hover:border-amber-400/40'
+                    ? 'border-amber-400/20 bg-[#131926] hover:border-amber-400/40 shadow-sm'
                     : 'border-white/5 bg-[#0F1420] opacity-60'
                 }`}
               >
@@ -182,18 +182,18 @@ export default function AchievementsView() {
                           : 'bg-white/5 text-gray-500'
                       }`}
                     >
-                      <IconComponent className="h-5 w-5" />
+                      <IconComponent size={22} weight={ach.unlocked ? 'fill' : 'duotone'} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-bold text-white tracking-tight">{ach.title}</h3>
                         {ach.unlocked ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-emerald-400/10 px-2 py-0.5 text-[0.68rem] font-semibold text-emerald-400">
-                            <CheckCircle2 className="h-3 w-3" /> Unlocked
+                            <CheckCircle size={13} weight="fill" /> Unlocked
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 rounded-md bg-white/5 px-2 py-0.5 text-[0.68rem] font-medium text-gray-400">
-                            <Lock className="h-2.5 w-2.5" /> Locked
+                            <Lock size={12} weight="bold" /> Locked
                           </span>
                         )}
                       </div>

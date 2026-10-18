@@ -2,6 +2,12 @@
 
 import { useCallback } from 'react';
 import type { RepertoireEdge } from '@/types/chess';
+import {
+  CaretDoubleLeft,
+  CaretLeft,
+  CaretRight,
+  CaretDoubleRight,
+} from '@phosphor-icons/react';
 
 interface MoveListProps {
   moves: RepertoireEdge[];
@@ -41,23 +47,43 @@ export default function MoveList({
   return (
     <div className="flex flex-col gap-1">
       {/* Navigation controls */}
-      <div className="flex items-center justify-center gap-1 border-b border-white/10 pb-2 mb-2">
-        {[
-          { icon: '⏮', action: onNavigateFirst, label: 'First' },
-          { icon: '◀', action: onNavigatePrev, label: 'Previous' },
-          { icon: '▶', action: onNavigateNext, label: 'Next' },
-          { icon: '⏭', action: onNavigateLast, label: 'Last' },
-        ].map((btn) => (
-          <button
-            key={btn.label}
-            type="button"
-            onClick={btn.action}
-            className="flex h-8 w-10 items-center justify-center rounded bg-white/5 text-sm text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
-            aria-label={btn.label}
-          >
-            {btn.icon}
-          </button>
-        ))}
+      <div className="flex items-center justify-center gap-1.5 border-b border-white/10 pb-2 mb-2">
+        <button
+          type="button"
+          onClick={onNavigateFirst}
+          className="flex h-8 w-9 items-center justify-center rounded-lg bg-white/5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white cursor-pointer active:scale-95"
+          aria-label="First move"
+          title="First move"
+        >
+          <CaretDoubleLeft size={16} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={onNavigatePrev}
+          className="flex h-8 w-9 items-center justify-center rounded-lg bg-white/5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white cursor-pointer active:scale-95"
+          aria-label="Previous move"
+          title="Previous move"
+        >
+          <CaretLeft size={16} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateNext}
+          className="flex h-8 w-9 items-center justify-center rounded-lg bg-white/5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white cursor-pointer active:scale-95"
+          aria-label="Next move"
+          title="Next move"
+        >
+          <CaretRight size={16} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateLast}
+          className="flex h-8 w-9 items-center justify-center rounded-lg bg-white/5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white cursor-pointer active:scale-95"
+          aria-label="Last move"
+          title="Last move"
+        >
+          <CaretDoubleRight size={16} weight="bold" />
+        </button>
       </div>
 
       {/* Move list */}

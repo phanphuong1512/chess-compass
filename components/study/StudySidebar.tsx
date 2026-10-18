@@ -3,21 +3,20 @@
 import React from 'react';
 import Link from 'next/link';
 import {
-  BookOpen,
-  Swords,
-  Puzzle,
-  BarChart2,
   Compass,
-  Library as LibraryIcon,
+  BookOpen,
+  Sword,
+  PuzzlePiece,
+  ChartBar,
+  Books,
   Trophy,
-  Award,
+  Medal,
   Crown,
-  Flame,
-  Zap,
-  ChevronDown,
-  LogOut,
-  User as UserIcon,
-} from 'lucide-react';
+  Fire,
+  Lightning,
+  CaretDown,
+  SignOut,
+} from '@phosphor-icons/react';
 import { useAuth } from '@/lib/auth/useAuth';
 
 export type StudyNavTab =
@@ -50,18 +49,58 @@ export default function StudySidebar({
   const { user, isLoading, loginWithGoogle, logout } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
 
-  const learningItems: Array<{ id: StudyNavTab; label: string; icon: React.ReactNode }> = [
-    { id: 'repertoire', label: 'My Repertoire', icon: <BookOpen className="h-4 w-4" /> },
-    { id: 'games', label: 'Games', icon: <Swords className="h-4 w-4" /> },
-    { id: 'puzzles', label: 'Puzzles', icon: <Puzzle className="h-4 w-4" /> },
-    { id: 'statistics', label: 'Statistics', icon: <BarChart2 className="h-4 w-4" /> },
-    { id: 'explorer', label: 'Explorer', icon: <Compass className="h-4 w-4" /> },
-    { id: 'library', label: 'Library', icon: <LibraryIcon className="h-4 w-4" /> },
+  const learningItems: Array<{
+    id: StudyNavTab;
+    label: string;
+    renderIcon: (active: boolean) => React.ReactNode;
+  }> = [
+    {
+      id: 'repertoire',
+      label: 'My Repertoire',
+      renderIcon: (active) => <BookOpen size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
+    {
+      id: 'games',
+      label: 'Games',
+      renderIcon: (active) => <Sword size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
+    {
+      id: 'puzzles',
+      label: 'Puzzles',
+      renderIcon: (active) => <PuzzlePiece size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
+    {
+      id: 'statistics',
+      label: 'Statistics',
+      renderIcon: (active) => <ChartBar size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
+    {
+      id: 'explorer',
+      label: 'Explorer',
+      renderIcon: (active) => <Compass size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
+    {
+      id: 'library',
+      label: 'Library',
+      renderIcon: (active) => <Books size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
   ];
 
-  const communityItems: Array<{ id: StudyNavTab; label: string; icon: React.ReactNode }> = [
-    { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="h-4 w-4" /> },
-    { id: 'achievements', label: 'Achievements', icon: <Award className="h-4 w-4" /> },
+  const communityItems: Array<{
+    id: StudyNavTab;
+    label: string;
+    renderIcon: (active: boolean) => React.ReactNode;
+  }> = [
+    {
+      id: 'leaderboard',
+      label: 'Leaderboard',
+      renderIcon: (active) => <Trophy size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
+    {
+      id: 'achievements',
+      label: 'Achievements',
+      renderIcon: (active) => <Medal size={18} weight={active ? 'fill' : 'duotone'} />,
+    },
   ];
 
   const progressPercent = Math.min(
@@ -76,8 +115,8 @@ export default function StudySidebar({
         <div className="p-4 pt-5 pb-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 group cursor-pointer">
             {/* Golden Compass Icon */}
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-stone-950 group-hover:bg-amber-300 transition-colors">
-              <Compass className="h-5 w-5" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-stone-950 group-hover:bg-amber-300 transition-colors shadow-xs">
+              <Compass size={20} weight="duotone" />
             </div>
             <span className="text-lg font-extrabold tracking-tight text-white group-hover:text-amber-300 transition-colors">
               Chess Compass
@@ -113,12 +152,12 @@ export default function StudySidebar({
                   }}
                   className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors duration-150 cursor-pointer ${
                     isActive
-                      ? 'bg-white/10 text-white font-bold'
+                      ? 'bg-white/10 text-white font-bold shadow-xs'
                       : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
                   }`}
                 >
                   <span className={isActive ? 'text-amber-400' : 'text-gray-400'}>
-                    {item.icon}
+                    {item.renderIcon(isActive)}
                   </span>
                   <span>{item.label}</span>
                 </button>
@@ -145,12 +184,12 @@ export default function StudySidebar({
                   }}
                   className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors duration-150 cursor-pointer ${
                     isActive
-                      ? 'bg-white/10 text-white font-bold'
+                      ? 'bg-white/10 text-white font-bold shadow-xs'
                       : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
                   }`}
                 >
                   <span className={isActive ? 'text-amber-400' : 'text-gray-400'}>
-                    {item.icon}
+                    {item.renderIcon(isActive)}
                   </span>
                   <span>{item.label}</span>
                 </button>
@@ -166,7 +205,7 @@ export default function StudySidebar({
         <div className="rounded-xl bg-white/5 p-2.5 border border-white/5">
           <div className="flex items-center justify-between text-[0.68rem] text-gray-400 mb-1.5 font-medium">
             <span className="flex items-center gap-1.5">
-              <Zap className="h-3 w-3 text-amber-400" />
+              <Lightning size={14} weight="fill" className="text-amber-400" />
               <span>Variations</span>
             </span>
             <span className="tabular-nums text-gray-300">
@@ -185,9 +224,9 @@ export default function StudySidebar({
         <button
           type="button"
           onClick={() => {}}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 px-3 py-2 text-xs font-bold text-stone-950 transition-colors duration-150 cursor-pointer active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 px-3 py-2 text-xs font-bold text-stone-950 transition-colors duration-150 cursor-pointer active:scale-[0.98] shadow-xs"
         >
-          <Crown className="h-3.5 w-3.5" />
+          <Crown size={15} weight="fill" />
           <span>Unlimited with Premium</span>
         </button>
 
@@ -243,7 +282,7 @@ export default function StudySidebar({
                       {user.name}
                     </span>
                     <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/20 px-1.5 py-0.2 text-[0.6rem] font-bold text-orange-400 border border-orange-500/30">
-                      <Flame className="h-2.5 w-2.5" /> 1
+                      <Fire size={12} weight="fill" /> 1
                     </span>
                   </div>
                   <p className="text-[0.65rem] text-emerald-400 font-medium truncate max-w-[110px]">
@@ -251,7 +290,7 @@ export default function StudySidebar({
                   </p>
                 </div>
               </div>
-              <ChevronDown className={`h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+              <CaretDown size={14} weight="bold" className={`text-gray-400 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
             </div>
 
             {/* Dropdown Menu */}
@@ -266,7 +305,7 @@ export default function StudySidebar({
                   onClick={logout}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
                 >
-                  <LogOut className="h-3.5 w-3.5" />
+                  <SignOut size={15} weight="bold" />
                   <span>Sign out</span>
                 </button>
               </div>

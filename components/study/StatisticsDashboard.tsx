@@ -26,6 +26,13 @@ import {
   BarChart3,
   Flame,
 } from 'lucide-react';
+import { Compass, XLogo, InstagramLogo, YoutubeLogo } from '@phosphor-icons/react';
+import {
+  ChessPawnIcon,
+  ChessKnightIcon,
+  ChessBishopIcon,
+  ChessKingIcon,
+} from '@/components/icons/ChessPieceIcons';
 import type { Repertoire, ImportedGame, RepertoireEdge } from '@/types/chess';
 import { fetchLichessGames } from '@/lib/api/lichess';
 import { fetchChessComGames } from '@/lib/api/chesscom';
@@ -271,9 +278,9 @@ export default function StatisticsDashboard({
       {/* 1. Header with Penguin Mascot */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-4">
-          {/* Penguin Avatar with cozy winter scarf matching ChessAtlas screenshot */}
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1E293B] to-[#0F172A] border border-white/10 shadow-lg text-3xl">
-            🐧
+          {/* Compass Mascot Emblem with sleek gradient */}
+          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-700 via-sky-600 to-teal-500 border border-white/10 shadow-lg text-white">
+            <Compass size={32} weight="duotone" className="drop-shadow-md" />
           </div>
           <div>
             <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-white">
@@ -729,8 +736,16 @@ export default function StatisticsDashboard({
                   <td className="py-3 pl-2">
                     <div className="flex items-center gap-3">
                       {/* Mini Board thumbnail */}
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-white/10 bg-[#1A2234] text-lg font-bold shadow-xs">
-                        {op.eco.startsWith('B') ? '♟' : op.eco.startsWith('C') ? '♞' : op.eco.startsWith('A') ? '♝' : '♚'}
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-[#1A2234] shadow-xs">
+                        {op.eco.startsWith('B') ? (
+                          <ChessPawnIcon color="white" size={20} />
+                        ) : op.eco.startsWith('C') ? (
+                          <ChessKnightIcon color="white" size={20} />
+                        ) : op.eco.startsWith('A') ? (
+                          <ChessBishopIcon color="white" size={20} />
+                        ) : (
+                          <ChessKingIcon color="white" size={20} />
+                        )}
                       </div>
                       <div>
                         <div className="flex items-center gap-1.5 font-bold text-white group-hover:text-amber-300 transition-colors">
@@ -1095,14 +1110,20 @@ export default function StatisticsDashboard({
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-[0.75rem]">
+        <div className="flex items-center gap-4 text-[0.75rem] text-gray-400">
           <span className="hover:text-gray-300 cursor-pointer">About</span>
           <span className="hover:text-gray-300 cursor-pointer">Contact</span>
           <span className="hover:text-gray-300 cursor-pointer">Privacy</span>
           <span className="hover:text-gray-300 cursor-pointer">Terms</span>
-          <span className="hover:text-gray-300 cursor-pointer">𝕏</span>
-          <span className="hover:text-gray-300 cursor-pointer">📷</span>
-          <span className="hover:text-gray-300 cursor-pointer">▶</span>
+          <span className="hover:text-white transition-colors cursor-pointer" title="X (Twitter)">
+            <XLogo size={14} weight="bold" />
+          </span>
+          <span className="hover:text-white transition-colors cursor-pointer" title="Instagram">
+            <InstagramLogo size={15} weight="bold" />
+          </span>
+          <span className="hover:text-white transition-colors cursor-pointer" title="YouTube">
+            <YoutubeLogo size={15} weight="fill" />
+          </span>
         </div>
       </footer>
     </div>
