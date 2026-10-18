@@ -11,11 +11,21 @@ import {
 // In-memory cache for ultra-fast instantaneous retrieval across session
 export const gameReviewMemoryCache = new Map<string, GameReviewResult>();
 
+const REVIEW_CACHE_VERSION = 'v4';
+
 export function getGameReviewKey(game: ImportedGame): string {
-  if (game.id && game.id.trim() !== '') return game.id.trim();
-  const maybeUrl = (game as unknown as { url?: string }).url;
-  if (maybeUrl && maybeUrl.trim() !== '') return maybeUrl.trim();
-  return `${game.platform || 'chess'}_${game.white}_${game.black}_${game.date}_${(game.pgn || '').slice(0, 80)}`;
+  let base = '';
+  if (game.id && game.id.trim() !== '') {
+    base = game.id.trim();
+  } else {
+    const maybeUrl = (game as unknown as { url?: string }).url;
+    if (maybeUrl && maybeUrl.trim() !== '') {
+      base = maybeUrl.trim();
+    } else {
+      base = `${game.platform || 'chess'}_${game.white}_${game.black}_${game.date}_${(game.pgn || '').slice(0, 80)}`;
+    }
+  }
+  return `${REVIEW_CACHE_VERSION}:${base}`;
 }
 
 
@@ -256,6 +266,88 @@ function extractPgnEvals(pgn: string): number[] {
     evals.push(cp);
   }
   return evals;
+}
+
+const PIECE_VALUES: Record<string, number> = {
+  p: 1,
+  n: 3,
+  b: 3,
+  r: 5,
+  q: 9,
+  k: 0,
+};
+
+/**
+ * Determines whether a move is a genuine material sacrifice according to Chess.com principles:
+ * 1. Sacrificing piece must be a minor piece, rook, or queen (pawns and kings excluded).
+ * 2. If it is a capture, player must give up more material than they capture (e.g. Rook for pawn/minor, Queen for Rook/minor).
+ *    Trades of equal value (e.g. Bxf3, Nxd5, Qxd1) or advantageous captures are NEVER sacrifices!
+ * 3. The sacrificed piece (or a hanging major piece left en prise) must be capturable by the opponent in fenAfter.
+ * 4. The resulting position must not be lost for the moving player.
+ */
+function isGenuineSacrifice(
+  move: { piece: string; captured?: string; from: string; to: string },
+  fenBefore: string,
+  fenAfter: string,
+  turn: 'white' | 'black',
+  afterScoreCp: number
+): boolean {
+  if (move.piece === 'p' || move.piece === 'k') return false;
+
+  const movedVal = PIECE_VALUES[move.piece] || 0;
+  const capturedVal = move.captured ? (PIECE_VALUES[move.captured] || 0) : 0;
+
+  // A trade of equal or greater value (e.g. B for N, N for N, R for R, Q for Q) is NEVER a sacrifice!
+  if (capturedVal >= movedVal) {
+    return false;
+  }
+
+  // Position must remain sound/winning (not completely lost)
+  if (turn === 'white' && afterScoreCp < -100) return false;
+  if (turn === 'black' && afterScoreCp > 100) return false;
+
+  try {
+    const afterChess = new Chess(fenAfter);
+    const opponentMoves = afterChess.moves({ verbose: true });
+
+    // Case 1: Capture where player gives up higher material (e.g. R(5) takes minor(3)/pawn(1), Q(9) takes R(5)/minor(3)/pawn(1))
+    if (move.captured && movedVal - capturedVal >= 2) {
+      const canRecapture = opponentMoves.some((m) => m.to === move.to);
+      if (canRecapture) {
+        return true;
+      }
+    }
+
+    // Case 2: Quiet piece sacrifice (minor piece, rook, or queen moved into attack without capturing)
+    if (!move.captured && movedVal >= 3) {
+      const canCapture = opponentMoves.some((m) => m.to === move.to);
+      if (canCapture) {
+        return true;
+      }
+    }
+
+    // Case 3: Leaving another valuable friendly major piece (Queen or Rook) undefended while moving elsewhere
+    const board = afterChess.board();
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const sqPiece = board[r][c];
+        if (sqPiece && sqPiece.color === (turn === 'white' ? 'w' : 'b')) {
+          if (sqPiece.type === 'q' || sqPiece.type === 'r') {
+            const sqName = `${String.fromCharCode(97 + c)}${8 - r}` as Square;
+            if (sqName === move.to) continue;
+            const canTakeHanging = opponentMoves.some((m) => m.to === sqName);
+            if (canTakeHanging) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
 }
 
 /**
@@ -556,17 +648,29 @@ export async function analyzeFullGameAsync(
       if (lichessJudgment === 'Blunder') classification = 'blunder';
       else if (lichessJudgment === 'Mistake') classification = 'mistake';
       else if (lichessJudgment === 'Inaccuracy') classification = 'inaccuracy';
-      else classification = isBook ? 'book' : 'good';
+      else if (isBook && cpLoss < 60) classification = 'book';
+      else if (cpLoss <= 12) classification = 'best';
+      else if (cpLoss <= 30) classification = 'excellent';
+      else classification = 'good';
     } else if (isBook && cpLoss < 60) {
       classification = 'book';
     } else {
-      const isSacrifice =
-        (move.piece === 'q' || move.piece === 'r' || move.piece === 'b' || move.piece === 'n') &&
-        move.captured !== undefined &&
-        ((turn === 'white' && afterScoreCp >= 150) || (turn === 'black' && afterScoreCp <= -150));
+      const isSacrifice = isGenuineSacrifice(move, fenBefore, fenAfter, turn, afterScoreCp);
 
-      if (isSacrifice && cpLoss <= 15) {
+      // Check if player made a significant evaluation gain (great move)
+      const playerWinGain =
+        turn === 'white' ? afterScoreCp - beforeScoreCp : beforeScoreCp - afterScoreCp;
+      const isGreat =
+        !isSacrifice &&
+        cpLoss <= 8 &&
+        !isBook &&
+        ((playerWinGain >= 150 && (turn === 'white' ? afterScoreCp >= 150 : afterScoreCp <= -150)) ||
+          (Math.abs(beforeScoreCp) <= 75 && (turn === 'white' ? afterScoreCp >= 220 : afterScoreCp <= -220)));
+
+      if (isSacrifice && cpLoss <= 10) {
         classification = 'brilliant';
+      } else if (isGreat) {
+        classification = 'great';
       } else if (cpLoss <= 12) {
         classification = 'best';
       } else if (cpLoss <= 30) {

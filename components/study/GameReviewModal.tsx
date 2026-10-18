@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import type { ImportedGame, Repertoire } from '@/types/chess';
 import type { RepertoireDAG } from '@/lib/chess/dag';
-import { fenToNodeId } from '@/lib/chess/dag';
+import { fenToNodeId, STARTING_FEN } from '@/lib/chess/dag';
 import {
   analyzeFullGameAsync,
   type GameReviewResult,
@@ -135,14 +135,21 @@ export default function GameReviewModal({
     runAnalysis(true);
   };
 
-  const totalPlies = reviewResult ? reviewResult.positions.length - 1 : 0;
-  // Fix: Correctly grab position for currentPly without being overridden by ternary operator precedence
-  const currentFen =
-    reviewResult?.positions[currentPly] ??
-    reviewResult?.positions[0] ??
-    '';
+  const totalPlies = reviewResult ? (reviewResult.moves?.length ?? (reviewResult.positions?.length ? reviewResult.positions.length - 1 : 0)) : 0;
   const currentMove: MoveReviewItem | undefined =
     reviewResult && currentPly > 0 ? reviewResult.moves[currentPly - 1] : undefined;
+
+  // Deriving currentFen directly from currentMove.fenAfter guarantees 100% accurate piece positions
+  const currentFen = useMemo(() => {
+    if (!reviewResult || !reviewResult.moves || reviewResult.moves.length === 0) {
+      return STARTING_FEN;
+    }
+    if (currentPly <= 0) {
+      return reviewResult.moves[0]?.fenBefore || reviewResult.positions?.[0] || STARTING_FEN;
+    }
+    const moveIdx = Math.min(currentPly - 1, reviewResult.moves.length - 1);
+    return reviewResult.moves[moveIdx]?.fenAfter || reviewResult.positions?.[currentPly] || STARTING_FEN;
+  }, [reviewResult, currentPly]);
 
 
   // Auto-scroll the move list when current ply changes
