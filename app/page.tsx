@@ -900,6 +900,8 @@ export default function StudyPage() {
                 onComplete={() => setIsTraining(false)}
                 orientation={activeRepertoire?.color || orientation}
                 repertoireName={activeRepertoire?.name}
+                lines={repertoireLines}
+                filterNodeIds={trainingFilterNodeIds}
               />
             </main>
           ) : studyNavTab === 'repertoire' ? (
