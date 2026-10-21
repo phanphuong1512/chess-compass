@@ -112,6 +112,18 @@ export default function DeviationDashboard({
     return list;
   }, [summary, deviations, filterType]);
 
+  const undrilledCount = useMemo(() => {
+    return displayDeviations.filter((d) => !d.addedToTraining && !d.drilled).length;
+  }, [displayDeviations]);
+
+  const handleDrillAll = () => {
+    for (const dev of displayDeviations) {
+      if (!dev.addedToTraining && !dev.drilled) {
+        onAddToTraining(dev);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col gap-5 text-white">
       {/* Header Info */}
@@ -258,11 +270,24 @@ export default function DeviationDashboard({
 
       {/* Deviations List */}
       <div className="rounded-2xl border border-white/10 bg-[#141B29] p-5">
-        <div className="flex items-center justify-between mb-4 border-b border-white/[0.08] pb-3">
-          <h3 className="flex items-center gap-2 text-sm font-bold text-white">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
-            Danh sách lệch chuẩn ({displayDeviations.length})
-          </h3>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-white/[0.08] pb-3">
+          <div className="flex items-center gap-3">
+            <h3 className="flex items-center gap-2 text-sm font-bold text-white">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              Danh sách lệch chuẩn ({displayDeviations.length})
+            </h3>
+            {undrilledCount > 0 && (
+              <button
+                type="button"
+                onClick={handleDrillAll}
+                className="flex items-center gap-1.5 rounded-lg bg-[#10B981] hover:bg-[#059669] text-white px-2.5 py-1 text-[0.68rem] font-bold transition-all shadow-md cursor-pointer"
+                title="Thêm tất cả các nước lệch này vào hàng đợi luyện tập FSRS"
+              >
+                <Zap className="h-3 w-3 fill-white" />
+                <span>Luyện tập ngay ({undrilledCount})</span>
+              </button>
+            )}
+          </div>
 
           {/* Filter options */}
           <div className="flex items-center gap-1 rounded-lg bg-black/40 border border-white/10 p-0.5 text-[0.65rem]">
@@ -320,13 +345,27 @@ export default function DeviationDashboard({
                         Nước {Math.ceil(dev.deviationPly / 2)} (Ply {dev.deviationPly})
                       </span>
 
-                      {dev.isOpponentDeviation ? (
-                        <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.2 text-[0.6rem] font-bold text-amber-300">
-                          Đối thủ đi mới
+                      {dev.eventType === 'error' ? (
+                        dev.engineCategory === 'blunder' ? (
+                          <span className="rounded-full bg-rose-500/20 border border-rose-500/40 px-2 py-0.5 text-[0.6rem] font-bold text-rose-300">
+                            Blunder (??)
+                          </span>
+                        ) : dev.engineCategory === 'mistake' ? (
+                          <span className="rounded-full bg-orange-500/20 border border-orange-500/40 px-2 py-0.5 text-[0.6rem] font-bold text-orange-300">
+                            Mistake (?)
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-yellow-500/20 border border-yellow-500/40 px-2 py-0.5 text-[0.6rem] font-bold text-yellow-300">
+                            Inaccuracy (?!)
+                          </span>
+                        )
+                      ) : dev.isOpponentDeviation ? (
+                        <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[0.6rem] font-bold text-amber-300">
+                          Opponent Novelty
                         </span>
                       ) : (
-                        <span className="rounded-full bg-red-500/15 border border-red-500/30 px-2 py-0.2 text-[0.6rem] font-bold text-red-300">
-                          Bạn đi chệch
+                        <span className="rounded-full bg-blue-500/20 border border-blue-500/40 px-2 py-0.5 text-[0.6rem] font-bold text-blue-300">
+                          Repertoire Deviation
                         </span>
                       )}
 

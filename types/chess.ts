@@ -144,6 +144,10 @@ export interface ExplorerStats {
   averageRating: number;
 }
 
+// Deviation event and severity types (ChessAtlas model)
+export type DeviationEventType = 'ok' | 'deviation' | 'error';
+export type DeviationEngineCategory = 'ok' | 'inaccuracy' | 'mistake' | 'blunder';
+
 // Deviation report from real game sync
 export interface DeviationReport {
   id?: number;
@@ -161,6 +165,28 @@ export interface DeviationReport {
   repertoireId: string;
   addedToTraining: boolean;
   createdAt: number;
+  // ChessAtlas fields
+  eventType?: DeviationEventType;
+  engineCategory?: DeviationEngineCategory | null;
+  drillable?: boolean;
+  drilled?: boolean;
+  courseName?: string;
+  chapterName?: string | null;
+}
+
+export interface GameDeviationSummary {
+  worst: DeviationEventType;
+  worstCategory: DeviationEngineCategory | null;
+  count: number;
+  primary: {
+    courseId: string;
+    courseName: string;
+    chapterName: string | null;
+  } | null;
+  otherCourseNames: string[];
+  worstDeviation: DeviationReport | null;
+  worstDrillable: DeviationReport | null;
+  hasDrilled: boolean;
 }
 
 // Game from Lichess/Chess.com

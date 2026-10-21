@@ -225,23 +225,113 @@ export interface GameReviewResult {
 }
 
 /**
+ * ChessAtlas & Chess.com logistic model constant
+ * I = -0.00368208
+ */
+const I = -0.00368208;
+
+/**
+ * Centipawns to win probability delta in range [-1, 1]
+ */
+export function centipawnsToWinProbDelta(cp: number): number {
+  return 2 / (1 + Math.exp(I * cp)) - 1;
+}
+
+/**
+ * Mate in moves to win probability delta in range [-1, 1]
+ * Uses ChessAtlas exact L(mate) mapping
+ */
+export function mateToWinProbDelta(mateInMoves: number): number {
+  const e = (21 - Math.min(10, Math.abs(mateInMoves))) * 100;
+  const r = mateInMoves < 0 ? -e : e;
+  return centipawnsToWinProbDelta(r);
+}
+
+/**
  * Calculates win probability percentage (0 - 100%) from centipawn evaluation.
- * Uses Chess.com's standard logistic (sigmoid) Expected Points model: P = 100 / (1 + 10^(-cp / 400))
+ * Exactly matches ChessAtlas & Chess.com logistic Expected Points model:
+ * P = 50 + 50 * b(cp)
  */
 export function centipawnsToWinProb(cp: number): number {
   if (cp >= 20000) return 100;
   if (cp <= -20000) return 0;
   const clamped = Math.max(-2500, Math.min(2500, cp));
-  return 100 / (1 + Math.pow(10, -clamped / 400));
+  return 50 + 50 * centipawnsToWinProbDelta(clamped);
 }
 
 /**
- * Converts win probability loss into Chess.com-style accuracy (0 - 100%)
+ * Converts win probability loss into ChessAtlas / Chess.com CAPS accuracy (0 - 100%)
+ * Exact formula: W(Δ) = min(100, max(0, 103.1668100711649 * exp(-0.04354415386753951 * Δ) - 3.166924740191411 + 1))
  */
-function winProbLossToAccuracy(deltaWin: number): number {
+export function winProbLossToAccuracy(deltaWin: number): number {
   const d = Math.max(0, deltaWin);
-  const acc = 103.1668 * Math.exp(-0.04354 * d) - 3.1669;
+  const acc = 103.1668100711649 * Math.exp(-0.04354415386753951 * d) - 3.166924740191411 + 1;
   return Math.min(100, Math.max(0, acc));
+}
+
+/**
+ * Calculates game-level accuracy using ChessAtlas's weighted arithmetic + harmonic mean
+ * with volatility sliding window weighting.
+ */
+export function calculateGameAccuracy(winProbs: number[]): { white: number; black: number } {
+  const e = winProbs.length;
+  if (e === 0) return { white: 80.0, black: 75.0 };
+
+  const s = [50 + 50 * centipawnsToWinProbDelta(15), ...winProbs];
+  const windowSize = Math.min(8, Math.max(2, Math.floor(e / 10)));
+  const slidingWindows: number[][] = [];
+  const initialWindow = s.slice(0, windowSize);
+  const headCount = Math.min(windowSize, s.length) - 2;
+
+  for (let a = 0; a < headCount; a++) slidingWindows.push(initialWindow);
+  for (let a = 0; a + windowSize <= s.length; a++) {
+    slidingWindows.push(s.slice(a, a + windowSize));
+  }
+
+  // Weight based on standard deviation of positions within sliding window (volatility)
+  const weights = slidingWindows.map((win) => {
+    if (win.some((v) => v == null)) return null;
+    const avg = win.reduce((acc, v) => acc + v, 0) / win.length;
+    const variance = win.reduce((acc, v) => acc + (v - avg) ** 2, 0) / win.length;
+    const stdDev = Math.sqrt(variance);
+    return Math.min(12, Math.max(0.5, stdDev));
+  });
+
+  const whiteMoves: { accuracy: number; weight: number }[] = [];
+  const blackMoves: { accuracy: number; weight: number }[] = [];
+
+  for (let a = 0; a + 1 < s.length; a++) {
+    const o = s[a];
+    const d = s[a + 1];
+    const p = weights[a];
+    if (o == null || d == null || p == null) continue;
+
+    const isWhite = a % 2 === 0;
+    const beforeWin = isWhite ? o : 100 - o;
+    const afterWin = isWhite ? d : 100 - d;
+    const acc = winProbLossToAccuracy(Math.max(0, beforeWin - afterWin));
+
+    if (isWhite) {
+      whiteMoves.push({ accuracy: acc, weight: p });
+    } else {
+      blackMoves.push({ accuracy: acc, weight: p });
+    }
+  }
+
+  const computeComposite = (moves: { accuracy: number; weight: number }[]): number => {
+    if (moves.length === 0) return 80.0;
+    const totalWeight = moves.reduce((n, i) => n + i.weight, 0);
+    const weightedArithmetic =
+      moves.reduce((n, i) => n + i.accuracy * i.weight, 0) / (totalWeight || 1);
+    const harmonic =
+      moves.length / moves.reduce((n, i) => n + 1 / Math.max(1, i.accuracy), 0);
+    return Math.round(((weightedArithmetic + harmonic) / 2) * 10) / 10;
+  };
+
+  return {
+    white: computeComposite(whiteMoves),
+    black: computeComposite(blackMoves),
+  };
 }
 
 const COMMON_BOOK_LINES = new Set([
@@ -324,9 +414,24 @@ function isGenuineSacrifice(
 
     // Case 2: Quiet piece sacrifice (minor piece, rook, or queen moved into attack without capturing)
     if (!move.captured && movedVal >= 3) {
-      const canCapture = opponentMoves.some((m) => m.to === move.to);
-      if (canCapture) {
-        return true;
+      const capturers = opponentMoves.filter((m) => m.to === move.to);
+      for (const cap of capturers) {
+        const capturerVal = PIECE_VALUES[cap.piece] || 0;
+        // If opponent captures with a lower value piece (e.g. pawn takes minor/rook/queen, minor takes rook/queen),
+        // player suffers a net material loss even if they recapture!
+        if (movedVal - capturerVal >= 2) {
+          return true;
+        }
+
+        // Test if the piece was left completely undefended (hanging piece sacrifice)
+        const simChess = new Chess(fenAfter);
+        simChess.move(cap);
+        const myResponses = simChess.moves({ verbose: true });
+        const canRecaptureOnSq = myResponses.some((r) => r.to === move.to);
+        if (!canRecaptureOnSq) {
+          // Player left piece hanging with NO immediate recapture!
+          return true;
+        }
       }
     }
 
@@ -679,14 +784,25 @@ export async function analyzeFullGameAsync(
         winLoss <= 1.5 &&
         (winGain >= 15.0 || (winProbBefore >= 35 && winProbBefore <= 65 && winGain >= 8.0));
 
-      if (isSacrifice && winLoss <= 2.0 && winProbAfter >= 35.0) {
-        // Brilliant (!!): Genuine material sacrifice, maintains advantage/equality, winLoss <= 2%
+      const isTopEngineChoice = bestMove
+        ? move.san === bestMove.san || (bestMove.from === move.from && bestMove.to === move.to)
+        : false;
+
+      if (
+        isSacrifice &&
+        isTopEngineChoice &&
+        winLoss <= 0.5 &&
+        winProbAfter >= 40.0 &&
+        !isBook &&
+        ply > 6
+      ) {
+        // Brilliant (!!): Top engine move that executes a genuine material sacrifice without compromising evaluation
         classification = 'brilliant';
       } else if (isGreat) {
         // Great (!): Turning point or crucial saving move
         classification = 'great';
-      } else if (winLoss <= 0.2 || (bestMove && move.san === bestMove.san)) {
-        // Best (★): Absolute top engine recommendation or zero loss (<= 0.2%)
+      } else if (winLoss <= 0.2 || isTopEngineChoice) {
+        // Best (★): Absolute top engine recommendation or minimal loss (<= 0.2%)
         classification = 'best';
       } else if (winLoss <= 2.0) {
         // Excellent (▲): 0.2% - 2.0% win probability loss
@@ -704,8 +820,18 @@ export async function analyzeFullGameAsync(
         // Mistake (?): 10.0% - 20.0% win probability loss
         classification = 'mistake';
       } else {
-        // Blunder (??): > 20.0% win probability loss (hands a massive chunk of the game to opponent)
+        // Blunder (??): > 20.0% win probability loss
         classification = 'blunder';
+      }
+
+      // ChessAtlas Anti-Blunder Rule:
+      // If position is still completely winning (>= +600 cp) or was already completely lost (<= -600 cp),
+      // losing further points is capped at 'good' instead of falsely penalizing as a blunder.
+      if (
+        classification === 'blunder' &&
+        (playerScoreAfter >= 600 || playerScoreBefore <= -600)
+      ) {
+        classification = 'good';
       }
     }
 
@@ -752,21 +878,15 @@ export async function analyzeFullGameAsync(
     });
   }
 
-  // Use official accuracy from Chess.com or calculate from real moves
+  // Use official accuracy from Chess.com or calculate using ChessAtlas composite weighted harmonic+arithmetic mean
   let whiteAccuracy = game.accuracies?.white;
   let blackAccuracy = game.accuracies?.black;
 
-  if (whiteAccuracy === undefined) {
-    whiteAccuracy =
-      whiteAccuracyAccum.length > 0
-        ? Math.round((whiteAccuracyAccum.reduce((a, b) => a + b, 0) / whiteAccuracyAccum.length) * 10) / 10
-        : 80.0;
-  }
-  if (blackAccuracy === undefined) {
-    blackAccuracy =
-      blackAccuracyAccum.length > 0
-        ? Math.round((blackAccuracyAccum.reduce((a, b) => a + b, 0) / blackAccuracyAccum.length) * 10) / 10
-        : 75.0;
+  if (whiteAccuracy === undefined || blackAccuracy === undefined) {
+    const gameWinProbs = evalHistory.map((cp) => centipawnsToWinProb(cp));
+    const compositeAcc = calculateGameAccuracy(gameWinProbs);
+    if (whiteAccuracy === undefined) whiteAccuracy = compositeAcc.white;
+    if (blackAccuracy === undefined) blackAccuracy = compositeAcc.black;
   }
 
   let summaryComment = 'A sharp battle with critical turning points.';

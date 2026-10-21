@@ -39,6 +39,8 @@ import {
   getGameReviewKey,
 } from '@/lib/chess/gameReview';
 import ChessBoard from './ChessBoard';
+import MaterialDifferenceBar from './MaterialDifferenceBar';
+import { calculateMaterial } from '@/lib/chess/material';
 import { playMoveSound } from '@/lib/chess/audio';
 import { ClassificationIcon } from '@/components/icons/MoveClassificationIcons';
 import { GraduationCap } from '@phosphor-icons/react';
@@ -150,6 +152,9 @@ export default function GameReviewModal({
     const moveIdx = Math.min(currentPly - 1, reviewResult.moves.length - 1);
     return reviewResult.moves[moveIdx]?.fenAfter || reviewResult.positions?.[currentPly] || STARTING_FEN;
   }, [reviewResult, currentPly]);
+
+  // Calculate captured pieces and material lead (ChessAtlas / Chess.com exact feature)
+  const boardMaterial = useMemo(() => calculateMaterial(currentFen), [currentFen]);
 
 
   // Auto-scroll the move list when current ply changes
@@ -605,49 +610,72 @@ export default function GameReviewModal({
               <div className="h-full grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden">
                 {/* LEFT COLUMN: Chessboard & Stepper Controls (7 cols) */}
                 <div className="lg:col-span-7 flex flex-col h-full border-r border-white/[0.08] bg-[#0E131E] p-4 sm:p-5 overflow-y-auto">
-                  {/* Chessboard Container with Chess.com-style Vertical Eval Bar */}
-                  <div className="flex gap-2.5 items-stretch justify-center max-w-[490px] mx-auto w-full">
-                    {/* Vertical Eval Bar */}
-                    <div className="relative w-6 sm:w-7 rounded-lg bg-[#262421] border border-white/10 overflow-hidden flex flex-col justify-end shrink-0 shadow-inner">
-                      <div
-                        className="w-full bg-[#EAE8E6] transition-all duration-300"
-                        style={{ height: `${whiteBarHeight}%` }}
+                  {/* Chessboard Container with Captured Pieces & Vertical Eval Bar (ChessAtlas / Chess.com) */}
+                  <div className="max-w-[490px] mx-auto w-full flex flex-col gap-1.5">
+                    {/* Top Player Header & Captured Pieces */}
+                    <div className="pl-9 sm:pl-10 pr-1">
+                      <MaterialDifferenceBar
+                        playerName={boardOrientation === 'white' ? game.black : game.white}
+                        playerRating={boardOrientation === 'white' ? game.blackRating : game.whiteRating}
+                        material={boardOrientation === 'white' ? boardMaterial.black : boardMaterial.white}
+                        pieceColor={boardOrientation === 'white' ? 'white' : 'black'}
                       />
-                      <div
-                        className={`absolute left-0 right-0 text-[0.62rem] font-bold font-mono text-center select-none ${
-                          whiteBarHeight > 50 ? 'bottom-1 text-[#262421]' : 'top-1 text-white'
-                        }`}
-                      >
-                        {evalLabel}
+                    </div>
+
+                    {/* Chessboard Container with Chess.com-style Vertical Eval Bar */}
+                    <div className="flex gap-2.5 items-stretch justify-center w-full">
+                      {/* Vertical Eval Bar */}
+                      <div className="relative w-6 sm:w-7 rounded-lg bg-[#262421] border border-white/10 overflow-hidden flex flex-col justify-end shrink-0 shadow-inner">
+                        <div
+                          className="w-full bg-[#EAE8E6] transition-all duration-300"
+                          style={{ height: `${whiteBarHeight}%` }}
+                        />
+                        <div
+                          className={`absolute left-0 right-0 text-[0.62rem] font-bold font-mono text-center select-none ${
+                            whiteBarHeight > 50 ? 'bottom-1 text-[#262421]' : 'top-1 text-white'
+                          }`}
+                        >
+                          {evalLabel}
+                        </div>
+                      </div>
+
+                      {/* Board */}
+                      <div className="flex-1 aspect-square relative max-w-[450px]">
+                        <ChessBoard
+                          fen={currentFen}
+                          orientation={boardOrientation}
+                          interactive={false}
+                          lastMove={lastMoveHighlight}
+                          arrows={arrows}
+                        />
+
+                        {/* Move quality badge on top left */}
+                        {currentMove && (
+                          <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-stone-950/90 backdrop-blur-md border border-white/10 text-xs font-bold shadow-xl">
+                            <ClassificationIcon classification={currentMove.classification} size={18} />
+                            <span className={CLASSIFICATION_META[currentMove.classification].textColor}>
+                              {CLASSIFICATION_META[currentMove.classification].label} ({currentMove.san})
+                            </span>
+                            <span className="text-gray-400 font-normal text-[0.65rem] border-l border-white/20 pl-2 ml-0.5">
+                              {currentMove.engineSource === 'lichess-server'
+                                ? 'Lichess SF'
+                                : currentMove.engineSource === 'lichess-cloud'
+                                  ? 'Cloud SF16'
+                                  : 'Local SF'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Board */}
-                    <div className="flex-1 aspect-square relative max-w-[450px]">
-                      <ChessBoard
-                        fen={currentFen}
-                        orientation={boardOrientation}
-                        interactive={false}
-                        lastMove={lastMoveHighlight}
-                        arrows={arrows}
+                    {/* Bottom Player Header & Captured Pieces */}
+                    <div className="pl-9 sm:pl-10 pr-1">
+                      <MaterialDifferenceBar
+                        playerName={boardOrientation === 'white' ? game.white : game.black}
+                        playerRating={boardOrientation === 'white' ? game.whiteRating : game.blackRating}
+                        material={boardOrientation === 'white' ? boardMaterial.white : boardMaterial.black}
+                        pieceColor={boardOrientation === 'white' ? 'black' : 'white'}
                       />
-
-                      {/* Move quality badge on top left */}
-                      {currentMove && (
-                        <div className="absolute top-2 left-2 z-10 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-stone-950/90 backdrop-blur-md border border-white/10 text-xs font-bold shadow-xl">
-                          <ClassificationIcon classification={currentMove.classification} size={18} />
-                          <span className={CLASSIFICATION_META[currentMove.classification].textColor}>
-                            {CLASSIFICATION_META[currentMove.classification].label} ({currentMove.san})
-                          </span>
-                          <span className="text-gray-400 font-normal text-[0.65rem] border-l border-white/20 pl-2 ml-0.5">
-                            {currentMove.engineSource === 'lichess-server'
-                              ? 'Lichess SF'
-                              : currentMove.engineSource === 'lichess-cloud'
-                                ? 'Cloud SF16'
-                                : 'Local SF'}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </div>
 

@@ -1,14 +1,105 @@
 import { Chess } from 'chess.js';
-import type { DeviationReport, ImportedGame, Repertoire, ChessColor } from '@/types/chess';
+import type {
+  DeviationReport,
+  ImportedGame,
+  Repertoire,
+  ChessColor,
+  DeviationEventType,
+  DeviationEngineCategory,
+  GameDeviationSummary,
+} from '@/types/chess';
 import { RepertoireDAG, fenToNodeId, STARTING_FEN } from './dag';
 import { fetchCloudEval } from '@/lib/api/lichess';
 import { evaluatePosition } from './eval';
+
+export const EVENT_TYPE_SEVERITY: Record<DeviationEventType, number> = {
+  ok: 0,
+  deviation: 1,
+  error: 2,
+};
+
+export const ENGINE_CATEGORY_SEVERITY: Record<DeviationEngineCategory, number> = {
+  ok: 0,
+  inaccuracy: 1,
+  mistake: 2,
+  blunder: 3,
+};
+
+export function compareDeviationSeverity(a: DeviationReport, b: DeviationReport): boolean {
+  const evA = a.eventType ? EVENT_TYPE_SEVERITY[a.eventType] : 0;
+  const evB = b.eventType ? EVENT_TYPE_SEVERITY[b.eventType] : 0;
+  if (evA !== evB) return evA > evB;
+  const engA = a.engineCategory ? ENGINE_CATEGORY_SEVERITY[a.engineCategory] : -1;
+  const engB = b.engineCategory ? ENGINE_CATEGORY_SEVERITY[b.engineCategory] : -1;
+  return engA > engB;
+}
+
+/**
+ * Aggregates game-level deviations matching ChessAtlas's useDeviationsByGame reducer
+ */
+export function aggregateGameDeviations(
+  deviations: DeviationReport[]
+): Map<string, GameDeviationSummary> {
+  const map = new Map<string, GameDeviationSummary>();
+  for (const dev of deviations) {
+    if (!map.has(dev.gameId)) {
+      map.set(dev.gameId, {
+        worst: 'ok',
+        worstCategory: null,
+        count: 0,
+        primary: null,
+        otherCourseNames: [],
+        worstDeviation: null,
+        worstDrillable: null,
+        hasDrilled: false,
+      });
+    }
+    const summary = map.get(dev.gameId)!;
+    summary.count++;
+    if (!summary.worstDeviation || compareDeviationSeverity(dev, summary.worstDeviation)) {
+      summary.worstDeviation = dev;
+    }
+    const evType = dev.eventType || 'deviation';
+    if (EVENT_TYPE_SEVERITY[evType] > EVENT_TYPE_SEVERITY[summary.worst]) {
+      summary.worst = evType;
+    }
+    if (dev.engineCategory) {
+      const curCat = summary.worstCategory ? ENGINE_CATEGORY_SEVERITY[summary.worstCategory] : -1;
+      const newCat = ENGINE_CATEGORY_SEVERITY[dev.engineCategory];
+      if (newCat > curCat) {
+        summary.worstCategory = dev.engineCategory;
+      }
+    }
+    if (dev.drillable && (!summary.worstDrillable || compareDeviationSeverity(dev, summary.worstDrillable))) {
+      summary.worstDrillable = dev;
+    }
+    if (dev.drilled || dev.addedToTraining) {
+      summary.hasDrilled = true;
+    }
+    if (dev.repertoireId) {
+      const repName = dev.courseName || 'Repertoire';
+      if (summary.primary) {
+        if (dev.repertoireId !== summary.primary.courseId && !summary.otherCourseNames.includes(repName)) {
+          summary.otherCourseNames.push(repName);
+        }
+      } else {
+        summary.primary = {
+          courseId: dev.repertoireId,
+          courseName: repName,
+          chapterName: dev.chapterName ?? null,
+        };
+      }
+    }
+  }
+  return map;
+}
 
 export interface AnalysisSummary {
   totalAnalyzed: number;
   playerDeviations: number;
   opponentDeviations: number;
   deviations: DeviationReport[];
+  byGameId: Map<string, GameDeviationSummary>;
 }
 
 /**
@@ -112,6 +203,11 @@ export async function detectDeviations(
               }
             }
 
+            const cp = centipawnLoss ?? 50;
+            const engineCategory: DeviationEngineCategory =
+              cp >= 200 ? 'blunder' : cp >= 90 ? 'mistake' : cp >= 30 ? 'inaccuracy' : 'ok';
+            const eventType: DeviationEventType = engineCategory === 'ok' ? 'deviation' : 'error';
+
             deviations.push({
               gameId: game.id,
               platform: game.platform,
@@ -124,6 +220,11 @@ export async function detectDeviations(
               centipawnLoss,
               isOpponentDeviation: false,
               repertoireId: repertoire.id,
+              courseName: repertoire.name,
+              eventType,
+              engineCategory,
+              drillable: true,
+              drilled: false,
               addedToTraining: false,
               createdAt: Date.now(),
             });
@@ -148,6 +249,11 @@ export async function detectDeviations(
               positionFen: currentFen,
               isOpponentDeviation: true,
               repertoireId: repertoire.id,
+              courseName: repertoire.name,
+              eventType: 'deviation',
+              engineCategory: 'ok',
+              drillable: true,
+              drilled: false,
               addedToTraining: false,
               createdAt: Date.now(),
             });
@@ -165,10 +271,13 @@ export async function detectDeviations(
     }
   }
 
+  const byGameId = aggregateGameDeviations(deviations);
+
   return {
     totalAnalyzed,
     playerDeviations: playerDeviationsCount,
     opponentDeviations: opponentDeviationsCount,
     deviations,
+    byGameId,
   };
 }
