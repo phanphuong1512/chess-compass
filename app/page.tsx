@@ -50,6 +50,7 @@ import ChessBoard from '@/components/study/ChessBoard';
 import EvalBar from '@/components/study/EvalBar';
 import MoveList from '@/components/study/MoveList';
 import RepertoireTree from '@/components/study/RepertoireTree';
+import RepertoireLinesList from '@/components/study/RepertoireLinesList';
 import TrainingSession from '@/components/study/TrainingSession';
 import ExplorerPanel from '@/components/study/ExplorerPanel';
 import DeviationDashboard from '@/components/study/DeviationDashboard';
@@ -60,6 +61,8 @@ import NewRepertoireModal from '@/components/study/NewRepertoireModal';
 import BuildFromGamesModal from '@/components/study/BuildFromGamesModal';
 
 import { RepertoireDAG, STARTING_FEN, fenToNodeId } from '@/lib/chess/dag';
+import { importPgnToRepertoireDAG } from '@/lib/chess/pgnParser';
+import { extractRepertoireLines, type RepertoireLine } from '@/lib/chess/repertoireTree';
 import { createCard, getDueCards } from '@/lib/fsrs/scheduler';
 import { ensureDefaultRepertoire } from '@/lib/chess/seed';
 import { evaluatePosition } from '@/lib/chess/eval';
@@ -121,7 +124,7 @@ export default function StudyPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [screenMode, setScreenMode] = useState<'dashboard' | 'repertoire'>('dashboard');
   const [viewMode, setViewMode] = useState<'board' | 'graph' | 'list'>('board');
-  const [sideTab, setSideTab] = useState<'moves' | 'tree' | 'explorer'>('moves');
+  const [sideTab, setSideTab] = useState<'moves' | 'lines' | 'tree' | 'explorer'>('moves');
   const [trainingFilterNodeIds, setTrainingFilterNodeIds] = useState<string[] | null>(null);
 
   // Repertoires & Modals
@@ -383,6 +386,46 @@ export default function StudyPage() {
     [dag, allEdges, activeRepertoireId]
   );
 
+  // Extract all discrete lines for the active repertoire (ChessAtlas style)
+  const repertoireLines = useMemo(() => {
+    if (!activeRepertoireId) return [];
+    return extractRepertoireLines(dag, activeRepertoireId);
+  }, [dag, activeRepertoireId]);
+
+  const handleSelectLine = useCallback(
+    (line: RepertoireLine) => {
+      const edges: RepertoireEdge[] = [];
+      for (const m of line.moves) {
+        const edge = allEdges.find(
+          (e) => e.san === m.san && e.fromNodeId === fenToNodeId(m.fromFen)
+        );
+        if (edge) {
+          edges.push(edge);
+        } else {
+          edges.push({
+            fromNodeId: fenToNodeId(m.fromFen),
+            toNodeId: fenToNodeId(m.toFen),
+            san: m.san,
+            uci: m.uci,
+            repertoireId: activeRepertoireId || '',
+            sortOrder: 0,
+          });
+        }
+      }
+      setMoveHistory(edges);
+      setCurrentMoveIndex(edges.length - 1);
+      if (line.moves.length > 0) {
+        setCurrentFen(line.moves[line.moves.length - 1].toFen);
+      }
+    },
+    [allEdges, activeRepertoireId]
+  );
+
+  const handleTrainLine = useCallback((line: RepertoireLine) => {
+    setTrainingFilterNodeIds(line.nodeIds);
+    setIsTraining(true);
+  }, []);
+
   // Create repertoire handler with full PGN import support
   const handleCreateNewRepertoire = useCallback(
     async (repData: {
@@ -405,65 +448,42 @@ export default function StudyPage() {
 
         // If PGN text is provided, parse and import all moves into the repertoire!
         if (repData.pgnText && repData.pgnText.trim()) {
-          const chess = new Chess();
-          let loaded = false;
-          try {
-            chess.loadPgn(repData.pgnText);
-            loaded = true;
-          } catch {
-            try {
-              const clean = repData.pgnText.replace(/\[.*?\]\s*/g, '').trim();
-              chess.loadPgn(clean);
-              loaded = true;
-            } catch {}
+          const { nodes, edges } = await importPgnToRepertoireDAG(repData.pgnText, newRep.id, dag);
+
+          // Persist all nodes to Dexie
+          for (const n of nodes) {
+            await db.nodes.put(n);
           }
 
-          if (loaded) {
-            const rawMoves = chess.history({ verbose: true });
-            const playChess = new Chess();
-            const movesToSave: Array<{
-              fromFen: string;
-              toFen: string;
-              san: string;
-              uci: string;
-              sortOrder: number;
-            }> = [];
+          // Persist all edges and create FSRS cards
+          const movesToSave: Array<{
+            fromFen: string;
+            toFen: string;
+            san: string;
+            uci: string;
+            sortOrder: number;
+          }> = [];
 
-            for (let idx = 0; idx < rawMoves.length; idx++) {
-              const m = rawMoves[idx];
-              const fromFen = playChess.fen();
-              playChess.move(m);
-              const toFen = playChess.fen();
-              const uci = m.from + m.to + (m.promotion || '');
+          for (let idx = 0; idx < edges.length; idx++) {
+            const e = edges[idx];
+            await db.edges.put(e);
+            await db.cards.put(createCard(e.toNodeId));
 
+            const nodeBefore = dag.getNode(e.fromNodeId);
+            const nodeAfter = dag.getNode(e.toNodeId);
+            if (nodeBefore && nodeAfter) {
               movesToSave.push({
-                fromFen,
-                toFen,
-                san: m.san,
-                uci,
+                fromFen: nodeBefore.fen,
+                toFen: nodeAfter.fen,
+                san: e.san,
+                uci: e.uci,
                 sortOrder: idx,
               });
-
-              const toNodeId = fenToNodeId(toFen);
-              const fromNodeId = fenToNodeId(fromFen);
-              await db.nodes.put({
-                id: toNodeId,
-                fen: toFen,
-                comments: '',
-                annotations: [],
-              });
-              await db.edges.put({
-                fromNodeId,
-                toNodeId,
-                san: m.san,
-                uci,
-                repertoireId: newRep.id,
-                sortOrder: idx,
-              });
-              await db.cards.put(createCard(toNodeId));
             }
+          }
 
-            if (movesToSave.length > 0) {
+          if (movesToSave.length > 0) {
+            try {
               await fetch('/api/study/moves', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -472,6 +492,8 @@ export default function StudyPage() {
                   repertoireId: newRep.id,
                 }),
               });
+            } catch (err) {
+              console.warn('Background sync to D1 moves:', err);
             }
           }
         } else if (repData.firstMove) {
@@ -876,6 +898,8 @@ export default function StudyPage() {
                 edges={edgesMap}
                 onUpdateCard={handleUpdateCard}
                 onComplete={() => setIsTraining(false)}
+                orientation={activeRepertoire?.color || orientation}
+                repertoireName={activeRepertoire?.name}
               />
             </main>
           ) : studyNavTab === 'repertoire' ? (
@@ -1044,6 +1068,17 @@ export default function StudyPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setSideTab('lines')}
+                      className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                        sideTab === 'lines'
+                          ? 'border-amber-400 text-amber-300'
+                          : 'border-transparent text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Lines ({repertoireLines.length})
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setSideTab('tree')}
                       className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
                         sideTab === 'tree'
@@ -1051,7 +1086,7 @@ export default function StudyPage() {
                           : 'border-transparent text-gray-400 hover:text-white'
                       }`}
                     >
-                      Repertoire Tree
+                      Tree
                     </button>
                     <button
                       type="button"
@@ -1062,7 +1097,7 @@ export default function StudyPage() {
                           : 'border-transparent text-gray-400 hover:text-white'
                       }`}
                     >
-                      Opening Explorer
+                      Explorer
                     </button>
                   </div>
 
@@ -1072,6 +1107,13 @@ export default function StudyPage() {
                         moves={moveHistory}
                         currentMoveIndex={currentMoveIndex}
                         onSelectMove={navigateToMove}
+                      />
+                    ) : sideTab === 'lines' ? (
+                      <RepertoireLinesList
+                        lines={repertoireLines}
+                        onSelectLine={handleSelectLine}
+                        onTrainLine={handleTrainLine}
+                        currentFen={currentFen}
                       />
                     ) : sideTab === 'tree' ? (
                       <RepertoireTree

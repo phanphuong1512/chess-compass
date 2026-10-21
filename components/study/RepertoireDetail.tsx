@@ -20,6 +20,13 @@ import {
 import { CastleTurret } from '@phosphor-icons/react';
 import { ChessKnightIcon } from '@/components/icons/ChessPieceIcons';
 import type { Repertoire, RepertoireNode, RepertoireEdge, FSRSCard } from '@/types/chess';
+import { RepertoireDAG } from '@/lib/chess/dag';
+import {
+  extractRepertoireLines,
+  buildRepertoireChapters,
+  type RepertoireChapter,
+  type RepertoireLine,
+} from '@/lib/chess/repertoireTree';
 
 interface RepertoireDetailProps {
   repertoire: Repertoire;
@@ -30,18 +37,6 @@ interface RepertoireDetailProps {
   onOpenGraph: () => void;
   onSelectChapter: (chapterLineMoves: string[]) => void;
   onEditRepertoire?: () => void;
-}
-
-interface ChapterItem {
-  id: string;
-  title: string;
-  moves: string[];
-  totalLines: number;
-  learnedLines: number;
-  progressPercent: number;
-  actionType: 'learn' | 'overstudy';
-  actionCount: number;
-  targetNodeIds: string[];
 }
 
 export default function RepertoireDetail({
@@ -86,79 +81,14 @@ export default function RepertoireDetail({
   const learnedCount = learnedCards.length;
   const progressPercent = totalLinesCount > 0 ? Math.min(100, Math.round((learnedCount / totalLinesCount) * 100)) : 0;
 
-  // Build Chapters dynamically based on real repertoire DAG edges and real cards
-  const chapters: ChapterItem[] = useMemo(() => {
-    if (repEdges.length === 0) return [];
-
-    // Group variations by second or third ply moves to form natural opening chapters
-    // For 1.e4 White repertoires: group by Black replies or White system branches
-    const chapterMap = new Map<string, { title: string; moves: string[]; nodeIds: Set<string>; edges: RepertoireEdge[] }>();
-
-    // 1. Identify key root lines
-    const rootEdges = repEdges.filter((e) => e.fromNodeId.includes('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'));
-    
-    // If Vienna repertoire (1.e4 e5 2.Nc3)
-    const isVienna = repertoire.id === 'rep_vienna' || repertoire.name.toLowerCase().includes('vienna');
-    
-    if (isVienna) {
-      // Vienna main branches
-      const branchDefs = [
-        { id: 'vienna-nc6-bc4', title: '2...Nc6 3.Bc4 Nf6 - Closed Vienna Attack', moves: ['e4', 'e5', 'Nc3', 'Nc6', 'Bc4', 'Nf6', 'd3', 'Bc5', 'f4'] },
-        { id: 'vienna-nc6-qg4', title: '2...Nc6 3.Bc4 Bc5 - Kingside Pressure', moves: ['e4', 'e5', 'Nc3', 'Bc5', 'Bc4', 'Nf6', 'd3', 'd6', 'f4'] },
-        { id: 'vienna-nf6-main', title: '2...Nf6 3.f4 - Main Vienna Gambit', moves: ['e4', 'e5', 'Nc3', 'Nf6', 'f4', 'd5', 'fxe5', 'Nxe4'] },
-        { id: 'vienna-nf6-bc4', title: '2...Nf6 3.Bc4 - Frankenstein-Dracula & Copycat', moves: ['e4', 'e5', 'Nc3', 'Nf6', 'Bc4', 'Nxe4', 'Qh5'] },
-        { id: 'vienna-d6', title: '2...d6 - Vienna with d4', moves: ['e4', 'e5', 'Nc3', 'd6', 'Bc4', 'Nf6', 'd3', 'Be7'] },
-        { id: 'vienna-sidelines', title: 'Sidelines & Surprises', moves: ['e4', 'e5', 'Nc3', 'Bb4', 'Nge2'] },
-      ];
-
-      return branchDefs.map((b) => {
-        // Collect real edges matching these move sequences
-        const matchingEdges = repEdges.filter((e) => b.moves.includes(e.san));
-        const chapterNodeIds = Array.from(new Set(matchingEdges.map((e) => e.toNodeId)));
-        const chCards = repCards.filter((c) => chapterNodeIds.includes(c.nodeId));
-        const chLearned = chCards.filter((c) => c.reps > 0).length;
-        const total = Math.max(matchingEdges.length, 1);
-        const pct = Math.round((chLearned / total) * 100);
-
-        return {
-          id: b.id,
-          title: b.title,
-          moves: b.moves,
-          totalLines: total,
-          learnedLines: chLearned,
-          progressPercent: pct,
-          actionType: (pct >= 100 ? 'overstudy' : 'learn') as 'overstudy' | 'learn',
-          actionCount: pct >= 100 ? chLearned : Math.max(1, total - chLearned),
-          targetNodeIds: chapterNodeIds,
-        };
-      });
-    }
-
-    // Generic dynamic chapter extraction: group by 2nd-ply / 3rd-ply responses
-    const secondPlyEdges = repEdges.filter((e) => !rootEdges.some((re) => re.toNodeId === e.fromNodeId));
-    const distinctStarters = repEdges.slice(0, 6);
-
-    return distinctStarters.map((e, idx) => {
-      const relatedEdges = repEdges.filter((re) => re.fromNodeId === e.toNodeId || re.toNodeId === e.toNodeId);
-      const chapterNodeIds = Array.from(new Set(relatedEdges.map((re) => re.toNodeId)));
-      const chCards = repCards.filter((c) => chapterNodeIds.includes(c.nodeId));
-      const chLearned = chCards.filter((c) => c.reps > 0).length;
-      const total = Math.max(relatedEdges.length, 1);
-      const pct = Math.round((chLearned / total) * 100);
-
-      return {
-        id: `chap-${idx}`,
-        title: `Chapter ${idx + 1}: Variation with ${e.san}`,
-        moves: [e.san],
-        totalLines: total,
-        learnedLines: chLearned,
-        progressPercent: pct,
-        actionType: (pct >= 100 ? 'overstudy' : 'learn') as 'overstudy' | 'learn',
-        actionCount: pct >= 100 ? chLearned : Math.max(1, total - chLearned),
-        targetNodeIds: chapterNodeIds,
-      };
-    });
-  }, [repertoire.id, repertoire.name, repEdges, repCards]);
+  // Build Chapters & Variations dynamically using ChessAtlas line extractor
+  const { chapters, allLines } = useMemo(() => {
+    if (repEdges.length === 0) return { chapters: [], allLines: [] };
+    const dag = new RepertoireDAG(allNodes, allEdges);
+    const lines = extractRepertoireLines(dag, repertoire.id);
+    const chaps = buildRepertoireChapters(lines, repertoire.color, repCards);
+    return { chapters: chaps, allLines: lines };
+  }, [allNodes, allEdges, repertoire.id, repertoire.color, repEdges.length, repCards]);
 
   return (
     <div className="w-full max-w-[1280px] mx-auto px-6 py-6 select-none text-white">
@@ -325,7 +255,13 @@ export default function RepertoireDetail({
           {chapters.map((chap) => (
             <div
               key={chap.id}
-              onClick={() => onSelectChapter(chap.moves)}
+              onClick={() =>
+                onSelectChapter(
+                  chap.keyMoves.length > 0
+                    ? chap.keyMoves
+                    : chap.lines[0]?.moves.map((m) => m.san) || []
+                )
+              }
               className="group flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#141B29]/90 p-5 backdrop-blur-md transition-all hover:border-white/20 hover:bg-[#182032] cursor-pointer"
             >
               <div className="flex items-start justify-between gap-4">
@@ -339,7 +275,7 @@ export default function RepertoireDetail({
                       {chap.title}
                     </h3>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {chap.learnedLines}/{chap.totalLines} lines
+                      {chap.subtitle} · {chap.learnedCount}/{chap.totalPositions} positions ({chap.lines.length} lines)
                     </p>
                   </div>
                 </div>
@@ -368,20 +304,30 @@ export default function RepertoireDetail({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onStartTraining(chap.actionType, chap.targetNodeIds);
+                    onStartTraining(chap.actionType, chap.allNodeIds);
                   }}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                    chap.actionType === 'overstudy'
-                      ? 'border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300'
-                      : 'bg-amber-400/15 border border-amber-400/30 text-amber-300 hover:bg-amber-400/25'
+                    chap.actionType === 'review'
+                      ? 'bg-amber-400/20 border border-amber-400/40 text-amber-300 hover:bg-amber-400/30'
+                      : chap.actionType === 'overstudy'
+                        ? 'border border-white/10 bg-white/5 hover:bg-white/10 text-gray-300'
+                        : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30'
                   }`}
                 >
-                  {chap.actionType === 'overstudy' ? (
+                  {chap.actionType === 'review' ? (
+                    <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
+                  ) : chap.actionType === 'overstudy' ? (
                     <Brain className="h-3.5 w-3.5 text-purple-400" />
                   ) : (
-                    <GraduationCap className="h-3.5 w-3.5 text-amber-400" />
+                    <GraduationCap className="h-3.5 w-3.5 text-emerald-400" />
                   )}
-                  <span>{chap.actionType === 'overstudy' ? 'Overstudy' : 'Learn'}</span>
+                  <span>
+                    {chap.actionType === 'review'
+                      ? 'Review'
+                      : chap.actionType === 'overstudy'
+                        ? 'Overstudy'
+                        : 'Learn'}
+                  </span>
                   <span className="rounded-full bg-black/20 px-1 py-0.1 text-[0.6rem] font-bold">
                     {chap.actionCount}
                   </span>
