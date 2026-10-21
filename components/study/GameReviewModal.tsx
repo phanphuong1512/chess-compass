@@ -126,11 +126,16 @@ export default function GameReviewModal({
   );
 
   useEffect(() => {
+    // If cached review has the telltale bugged 99.9% score, automatically re-analyze
+    if (initialCached && initialCached.whiteAccuracy >= 99.8 && initialCached.blackAccuracy >= 99.8) {
+      invalidateGameReview(game);
+      return runAnalysis(true);
+    }
     // If not already in memory cache, run analysis (checks Dexie database first)
     if (!initialCached) {
       return runAnalysis(false);
     }
-  }, [initialCached, runAnalysis]);
+  }, [initialCached, runAnalysis, game]);
 
   const handleForceReanalyze = () => {
     invalidateGameReview(game);

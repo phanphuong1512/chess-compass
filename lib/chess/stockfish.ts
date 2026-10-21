@@ -30,15 +30,18 @@ class StockfishWorkerEngine {
   private readyResolvers: Array<() => void> = [];
 
   constructor() {
-    this.init();
+    this.init('/stockfish/stockfish.js');
   }
 
-  private init() {
+  private init(scriptPath = '/stockfish/stockfish.js') {
     if (typeof window === 'undefined') return;
     try {
-      const wasmSupported = typeof WebAssembly === 'object';
-      const path = wasmSupported ? '/stockfish/stockfish.wasm.js' : '/stockfish/stockfish.js';
-      this.worker = new Worker(path);
+      if (this.worker) {
+        try {
+          this.worker.terminate();
+        } catch {}
+      }
+      this.worker = new Worker(scriptPath);
 
       this.worker.onmessage = (event) => {
         const line = typeof event.data === 'string' ? event.data : '';
@@ -84,21 +87,18 @@ class StockfishWorkerEngine {
         }
       };
 
-      this.worker.onerror = () => {
-        // Fallback to stockfish.js if stockfish.wasm.js failed
-        if (path.endsWith('.wasm.js')) {
-          try {
-            this.worker?.terminate();
-            this.worker = new Worker('/stockfish/stockfish.js');
-            this.worker.postMessage('uci');
-            this.worker.postMessage('isready');
-          } catch {}
+      this.worker.onerror = (err) => {
+        console.warn('Stockfish worker error:', err);
+        if (scriptPath.includes('.wasm.js')) {
+          // Recover by switching to pure JS worker
+          this.init('/stockfish/stockfish.js');
         }
       };
 
       this.worker.postMessage('uci');
       this.worker.postMessage('isready');
-    } catch {
+    } catch (err) {
+      console.warn('Failed to start Stockfish worker:', err);
       this.worker = null;
     }
   }
@@ -293,15 +293,25 @@ export async function evaluateFenWithStockfish(fen: string): Promise<PositionEng
     }
   } catch {}
 
-  // 3. Fallback: Quick material count
+  // 3. Fallback: Quick material count + positional heuristics
   let score = 0;
   const PIECES: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
   const board = chess.board();
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const p = board[r][c];
-      if (p) score += p.color === 'w' ? PIECES[p.type] : -PIECES[p.type];
+      if (p) {
+        const val = PIECES[p.type] || 0;
+        // Center control bonus (d4, e4, d5, e5)
+        const centerBonus = (r >= 2 && r <= 5 && c >= 2 && c <= 5) ? 12 : 0;
+        const sign = p.color === 'w' ? 1 : -1;
+        score += sign * (val + centerBonus);
+      }
     }
+  }
+
+  if (chess.inCheck()) {
+    score += chess.turn() === 'w' ? -75 : 75;
   }
 
   const legalMoves = chess.moves({ verbose: true });

@@ -11,7 +11,7 @@ import {
 // In-memory cache for ultra-fast instantaneous retrieval across session
 export const gameReviewMemoryCache = new Map<string, GameReviewResult>();
 
-const REVIEW_CACHE_VERSION = 'v5';
+const REVIEW_CACHE_VERSION = 'v6';
 
 export function getGameReviewKey(game: ImportedGame): string {
   let base = '';
@@ -269,15 +269,55 @@ export function winProbLossToAccuracy(deltaWin: number): number {
   return Math.min(100, Math.max(0, acc));
 }
 
+export const CLASSIFICATION_QUALITY: Record<MoveClassification, number> = {
+  best: 100,
+  brilliant: 100,
+  great: 100,
+  book: 100,
+  excellent: 98,
+  good: 85,
+  inaccuracy: 60,
+  mistake: 35,
+  miss: 10,
+  blunder: 0,
+};
+
+const BLUNDER_DECAY = 0.7;
+
+/**
+ * Calculates classification-based baseline accuracy using ChessAtlas's geometric blunder decay model.
+ * Used for calibration and fallback if engine evaluations are uniform or unavailable.
+ */
+export function calculateClassificationAccuracy(classifications: MoveClassification[]): number {
+  if (classifications.length === 0) return 80.0;
+  let blunderCount = 0;
+  let totalScore = 0;
+  for (const c of classifications) {
+    const base = CLASSIFICATION_QUALITY[c] ?? 80;
+    if (base === 0) {
+      // Blunder: exponential decay
+      const decay = Math.pow(BLUNDER_DECAY, blunderCount);
+      blunderCount++;
+      totalScore += 100 - 100 * decay;
+    } else {
+      totalScore += base;
+    }
+  }
+  return Math.round((totalScore / classifications.length) * 10) / 10;
+}
+
 /**
  * Calculates game-level accuracy using ChessAtlas's weighted arithmetic + harmonic mean
  * with volatility sliding window weighting.
+ *
+ * @param winProbsAfterPlies Array of win probabilities strictly AFTER each ply (ply 1..N).
+ * Does NOT contain the starting position, as it is prepended here.
  */
-export function calculateGameAccuracy(winProbs: number[]): { white: number; black: number } {
-  const e = winProbs.length;
+export function calculateGameAccuracy(winProbsAfterPlies: number[]): { white: number; black: number } {
+  const e = winProbsAfterPlies.length;
   if (e === 0) return { white: 80.0, black: 75.0 };
 
-  const s = [50 + 50 * centipawnsToWinProbDelta(15), ...winProbs];
+  const s = [50 + 50 * centipawnsToWinProbDelta(15), ...winProbsAfterPlies];
   const windowSize = Math.min(8, Math.max(2, Math.floor(e / 10)));
   const slidingWindows: number[][] = [];
   const initialWindow = s.slice(0, windowSize);
@@ -701,18 +741,15 @@ export async function analyzeFullGameAsync(
       afterScoreCp = pgnEvals[ply];
     } else {
       // 3. Instant lookup from concurrent batch evaluation
-      const sfBefore: PositionEngineEval = evalMap.get(fenBefore) || {
-        fen: fenBefore,
-        scoreCp: 20,
-        depth: 10,
-        source: 'local-stockfish',
-      };
-      const sfAfter: PositionEngineEval = evalMap.get(fenAfter) || {
-        fen: fenAfter,
-        scoreCp: 20,
-        depth: 10,
-        source: 'local-stockfish',
-      };
+      let sfBefore = evalMap.get(fenBefore);
+      let sfAfter = evalMap.get(fenAfter);
+
+      if (!sfBefore) {
+        sfBefore = await evaluateFenWithStockfish(fenBefore);
+      }
+      if (!sfAfter) {
+        sfAfter = await evaluateFenWithStockfish(fenAfter);
+      }
 
       engineSource = sfBefore.source;
       beforeScoreCp = sfBefore.scoreCp;
@@ -824,14 +861,13 @@ export async function analyzeFullGameAsync(
         classification = 'blunder';
       }
 
-      // ChessAtlas Anti-Blunder Rule:
-      // If position is still completely winning (>= +600 cp) or was already completely lost (<= -600 cp),
-      // losing further points is capped at 'good' instead of falsely penalizing as a blunder.
-      if (
-        classification === 'blunder' &&
-        (playerScoreAfter >= 600 || playerScoreBefore <= -600)
-      ) {
+      // Anti-Blunder Rule:
+      // If position is still completely winning (>= +600 cp), losing points is capped at 'good'.
+      // If position was already completely lost (<= -600 cp), cap blunder at 'mistake'.
+      if (classification === 'blunder' && playerScoreAfter >= 600) {
         classification = 'good';
+      } else if (classification === 'blunder' && playerScoreBefore <= -600) {
+        classification = 'mistake';
       }
     }
 
@@ -878,15 +914,69 @@ export async function analyzeFullGameAsync(
     });
   }
 
-  // Use official accuracy from Chess.com or calculate using ChessAtlas composite weighted harmonic+arithmetic mean
+  // 1. Accuracy from volatility sliding windows (ChessAtlas algorithm)
+  // evalHistory has [20, ply1Eval, ply2Eval, ...]. Slice 1 gives ONLY the plies after each move!
+  const pliesWinProbs = evalHistory.slice(1).map((cp) => centipawnsToWinProb(cp));
+  const volatilityAcc = calculateGameAccuracy(pliesWinProbs);
+
+  const whiteClassifications = reviewMoves.filter((m) => m.turn === 'white').map((m) => m.classification);
+  const blackClassifications = reviewMoves.filter((m) => m.turn === 'black').map((m) => m.classification);
+
+  // 2. Accuracy from per-move CAPS formulas (Lichess standard harmonic + arithmetic mean)
+  const computePlayerAccuracy = (
+    volatilityScore: number,
+    moveAccs: number[],
+    playerClassifications: MoveClassification[]
+  ): number => {
+    if (moveAccs.length === 0) return 80.0;
+    const arithmetic = moveAccs.reduce((sum, a) => sum + a, 0) / moveAccs.length;
+    const harmonic = moveAccs.length / moveAccs.reduce((sum, a) => sum + 1 / Math.max(1, a), 0);
+    const directAcc = (arithmetic + harmonic) / 2;
+
+    const classAcc = calculateClassificationAccuracy(playerClassifications);
+
+    let finalAcc = directAcc;
+    if (volatilityScore > 0 && !isNaN(volatilityScore)) {
+      finalAcc = (volatilityScore + directAcc) / 2;
+    }
+
+    // Safety guard: If player has blunders or mistakes, cap maximum accuracy so 99.9% is impossible with blunders
+    const blunders = playerClassifications.filter((c) => c === 'blunder').length;
+    const mistakes = playerClassifications.filter((c) => c === 'mistake' || c === 'miss').length;
+    const inaccuracies = playerClassifications.filter((c) => c === 'inaccuracy').length;
+
+    if (blunders >= 3) {
+      finalAcc = Math.min(finalAcc, 55.0);
+    } else if (blunders >= 2) {
+      finalAcc = Math.min(finalAcc, 68.0);
+    } else if (blunders === 1) {
+      finalAcc = Math.min(finalAcc, 79.5);
+    } else if (mistakes >= 3) {
+      finalAcc = Math.min(finalAcc, 75.0);
+    } else if (mistakes >= 2) {
+      finalAcc = Math.min(finalAcc, 82.0);
+    } else if (mistakes === 1) {
+      finalAcc = Math.min(finalAcc, 88.0);
+    } else if (inaccuracies >= 4) {
+      finalAcc = Math.min(finalAcc, 89.0);
+    }
+
+    // If classification baseline is substantially lower (e.g. flat engine evals failed), blend with classAcc
+    if (finalAcc > classAcc + 15) {
+      finalAcc = (finalAcc + classAcc) / 2;
+    }
+
+    return Math.min(100, Math.max(10, Math.round(finalAcc * 10) / 10));
+  };
+
   let whiteAccuracy = game.accuracies?.white;
   let blackAccuracy = game.accuracies?.black;
 
-  if (whiteAccuracy === undefined || blackAccuracy === undefined) {
-    const gameWinProbs = evalHistory.map((cp) => centipawnsToWinProb(cp));
-    const compositeAcc = calculateGameAccuracy(gameWinProbs);
-    if (whiteAccuracy === undefined) whiteAccuracy = compositeAcc.white;
-    if (blackAccuracy === undefined) blackAccuracy = compositeAcc.black;
+  if (whiteAccuracy === undefined || whiteAccuracy >= 99.8) {
+    whiteAccuracy = computePlayerAccuracy(volatilityAcc.white, whiteAccuracyAccum, whiteClassifications);
+  }
+  if (blackAccuracy === undefined || blackAccuracy >= 99.8) {
+    blackAccuracy = computePlayerAccuracy(volatilityAcc.black, blackAccuracyAccum, blackClassifications);
   }
 
   let summaryComment = 'A sharp battle with critical turning points.';
