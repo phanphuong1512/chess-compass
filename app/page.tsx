@@ -152,6 +152,7 @@ export default function StudyPage() {
 
   // Training state
   const [isTraining, setIsTraining] = useState(false);
+  const [trainingMode, setTrainingMode] = useState<'learn' | 'review' | 'overstudy'>('learn');
 
   // DAG instance
   const dag = useMemo(() => new RepertoireDAG(allNodes, allEdges), [allNodes, allEdges]);
@@ -607,6 +608,7 @@ export default function StudyPage() {
   // Training handlers
   const handleStartTrainingWithMode = useCallback(
     (mode: 'review' | 'learn' | 'overstudy', filterNodeIds?: string[]) => {
+      setTrainingMode(mode);
       setTrainingFilterNodeIds(filterNodeIds && filterNodeIds.length > 0 ? filterNodeIds : null);
       setIsTraining(true);
     },
@@ -901,6 +903,7 @@ export default function StudyPage() {
               repertoireName={activeRepertoire?.name}
               lines={repertoireLines}
               filterNodeIds={trainingFilterNodeIds}
+              mode={trainingMode}
             />
           ) : studyNavTab === 'repertoire' ? (
             screenMode === 'dashboard' ? (
@@ -918,10 +921,12 @@ export default function StudyPage() {
                 onOpenCreateModal={() => setShowNewRepertoireModal(true)}
                 onOpenBuildFromGames={() => setShowBuildFromGamesModal(true)}
                 onStartReview={() => {
+                  setTrainingMode('review');
                   setTrainingFilterNodeIds(null);
                   setIsTraining(true);
                 }}
                 onDrillMistakes={() => {
+                  setTrainingMode('review');
                   setTrainingFilterNodeIds(null);
                   setIsTraining(true);
                 }}

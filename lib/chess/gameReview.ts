@@ -11,7 +11,7 @@ import {
 // In-memory cache for ultra-fast instantaneous retrieval across session
 export const gameReviewMemoryCache = new Map<string, GameReviewResult>();
 
-const REVIEW_CACHE_VERSION = 'v6';
+const REVIEW_CACHE_VERSION = 'v7';
 
 export function getGameReviewKey(game: ImportedGame): string {
   let base = '';
@@ -102,6 +102,7 @@ export type MoveClassification =
   | 'brilliant'
   | 'great'
   | 'best'
+  | 'forced'
   | 'excellent'
   | 'good'
   | 'book'
@@ -143,6 +144,13 @@ export const CLASSIFICATION_META: Record<MoveClassification, ClassificationMeta>
   best: {
     label: 'Best',
     short: '★',
+    badgeBg: 'bg-emerald-500/20 border-emerald-500/40',
+    textColor: 'text-emerald-400',
+    dotColor: '#81B64C',
+  },
+  forced: {
+    label: 'Forced',
+    short: '▪',
     badgeBg: 'bg-emerald-500/20 border-emerald-500/40',
     textColor: 'text-emerald-400',
     dotColor: '#81B64C',
@@ -208,6 +216,57 @@ export interface MoveReviewItem {
   comment: string;
   tacticalExplanation: string;
   engineSource: 'lichess-server' | 'lichess-cloud' | 'local-stockfish';
+  isRepertoireMove?: boolean;
+  isDeviation?: boolean;
+  expectedRepertoireSan?: string;
+  isTransposition?: boolean;
+  winProbBefore?: number;
+  winProbAfter?: number;
+  moveAccuracy?: number;
+  clockSeconds?: number;
+}
+
+export interface PhaseMoment {
+  ply: number;
+  moveNum: number;
+  san: string;
+  classification: MoveClassification;
+  winDrop: number;
+  bestSan: string | null;
+}
+
+export interface PhaseData {
+  startPly: number;
+  endPly: number;
+  whiteAccuracy: number | null;
+  blackAccuracy: number | null;
+  userErrors: PhaseMoment[];
+}
+
+export interface GameInsightsData {
+  openingName: string | null;
+  openingEco: string | null;
+  lastBookPly: number;
+  phases: {
+    opening: PhaseData | null;
+    middlegame: PhaseData | null;
+    endgame: PhaseData | null;
+  };
+  costliestMove: PhaseMoment | null;
+  longestThink: { ply: number; moveNum: number; san: string; timeSeconds: number } | null;
+  whitePerformanceRating: number;
+  blackPerformanceRating: number;
+  whiteAcpl: number | null;
+  blackAcpl: number | null;
+  whiteAvgMoveTime: number | null;
+  blackAvgMoveTime: number | null;
+}
+
+export interface GameResultBadge {
+  square: string;
+  color: string;
+  glyph?: string;
+  icon?: 'crown' | 'flag' | 'clock';
 }
 
 export interface GameReviewResult {
@@ -271,6 +330,7 @@ export function winProbLossToAccuracy(deltaWin: number): number {
 
 export const CLASSIFICATION_QUALITY: Record<MoveClassification, number> = {
   best: 100,
+  forced: 100,
   brilliant: 100,
   great: 100,
   book: 100,
@@ -400,6 +460,330 @@ function extractPgnEvals(pgn: string): number[] {
     evals.push(cp);
   }
   return evals;
+}
+
+/**
+ * Parse embedded [%clk H:MM:SS] comments from PGN text (ChessAtlas Gn)
+ */
+function extractPgnClocks(pgn: string): number[] {
+  const clocks: number[] = [];
+  const regex = /\[%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\]/g;
+  let match;
+  while ((match = regex.exec(pgn)) !== null) {
+    const hrs = parseInt(match[1], 10);
+    const mins = parseInt(match[2], 10);
+    const secs = parseFloat(match[3]);
+    clocks.push(hrs * 3600 + mins * 60 + secs);
+  }
+  return clocks;
+}
+
+/**
+ * ChessAtlas Performance Rating Estimator (Vn in useEngineEnabled-CClyn6Sc.js)
+ * Piecewise linear interpolation on accuracy curve, blended with player rating and rounded to 50.
+ */
+const RATING_CURVE: [number, number][] = [
+  [40, 400],
+  [55, 700],
+  [65, 1000],
+  [75, 1400],
+  [82, 1800],
+  [88, 2200],
+  [93, 2600],
+  [97, 3000],
+];
+
+export function estimatePerformanceRating(accuracy: number, playerRating?: number): number {
+  let est: number;
+  if (accuracy <= RATING_CURVE[0][0]) {
+    est = RATING_CURVE[0][1];
+  } else if (accuracy >= RATING_CURVE[RATING_CURVE.length - 1][0]) {
+    est = RATING_CURVE[RATING_CURVE.length - 1][1];
+  } else {
+    est = 1400;
+    for (let i = 0; i < RATING_CURVE.length - 1; i++) {
+      const [x0, y0] = RATING_CURVE[i];
+      const [x1, y1] = RATING_CURVE[i + 1];
+      if (accuracy >= x0 && accuracy <= x1) {
+        const t = (accuracy - x0) / (x1 - x0);
+        est = y0 + t * (y1 - y0);
+        break;
+      }
+    }
+  }
+  const blended = playerRating && playerRating > 0 ? (est + playerRating) / 2 : est;
+  const rounded = Math.round(blended / 50) * 50;
+  return Math.max(100, Math.min(3500, rounded));
+}
+
+/**
+ * Counts non-pawn, non-king pieces on the board ($n in useEngineEnabled-CClyn6Sc.js)
+ */
+function countMajorMinorPieces(fen: string): { total: number; backRankMin: number } {
+  const boardPart = (fen.split(' ')[0] ?? '');
+  const ranks = boardPart.split('/');
+  let total = 0;
+  for (const ch of boardPart) {
+    if ('nbrqNBRQ'.includes(ch)) total++;
+  }
+  const countRankPieces = (rankStr: string) => {
+    let c = 0;
+    for (const ch of rankStr) {
+      if (/[a-zA-Z]/.test(ch)) c++;
+    }
+    return c;
+  };
+  const rank8Count = ranks[0] ? countRankPieces(ranks[0]) : 8;
+  const rank1Count = ranks[7] ? countRankPieces(ranks[7]) : 8;
+  return { total, backRankMin: Math.min(rank8Count, rank1Count) };
+}
+
+/**
+ * Detects Opening, Middlegame, and Endgame start plies (zt in useEngineEnabled-CClyn6Sc.js)
+ */
+export function detectGamePhases(positions: string[]): {
+  middlegameStartPly: number | null;
+  endgameStartPly: number | null;
+} {
+  let middlegameStartPly: number | null = null;
+  let endgameStartPly: number | null = null;
+
+  for (let ply = 1; ply < positions.length; ply++) {
+    const { total, backRankMin } = countMajorMinorPieces(positions[ply]);
+    if (middlegameStartPly === null && (total <= 10 || backRankMin < 4)) {
+      middlegameStartPly = ply;
+    }
+    if (middlegameStartPly !== null && endgameStartPly === null && total <= 6) {
+      endgameStartPly = ply;
+      break;
+    }
+  }
+  return { middlegameStartPly, endgameStartPly };
+}
+
+/**
+ * Computes full ChessAtlas Game Insights (er in useEngineEnabled-CClyn6Sc.js)
+ */
+export function computeGameInsights(
+  game: ImportedGame,
+  review: GameReviewResult,
+  userColor: 'white' | 'black'
+): GameInsightsData {
+  const moves = review.moves;
+  const totalPlies = moves.length;
+
+  // Last book ply
+  let lastBookPly = 0;
+  for (const m of moves) {
+    if (m.classification === 'book') {
+      lastBookPly = Math.max(lastBookPly, m.ply + 1);
+    }
+  }
+
+  const { middlegameStartPly, endgameStartPly } = detectGamePhases(review.positions);
+  const mgStart = middlegameStartPly ?? totalPlies + 1;
+  const egStart = endgameStartPly ?? totalPlies + 1;
+
+  const buildPhaseData = (startPly: number, endPly: number): PhaseData | null => {
+    if (startPly > endPly || startPly > totalPlies) return null;
+    const clampedEnd = Math.min(endPly, totalPlies);
+    const phaseMoves = moves.filter((m) => m.ply + 1 >= startPly && m.ply + 1 <= clampedEnd);
+    if (phaseMoves.length === 0) return null;
+
+    const whitePhaseAccs: number[] = [];
+    const blackPhaseAccs: number[] = [];
+    const userErrors: PhaseMoment[] = [];
+
+    for (const m of phaseMoves) {
+      const wBefore = m.winProbBefore ?? centipawnsToWinProb(m.turn === 'white' ? m.evalBeforeCp : -m.evalBeforeCp);
+      const wAfter = m.winProbAfter ?? centipawnsToWinProb(m.turn === 'white' ? m.evalAfterCp : -m.evalAfterCp);
+      const drop = Math.max(0, wBefore - wAfter);
+      const acc = m.moveAccuracy ?? winProbLossToAccuracy(drop);
+
+      if (m.turn === 'white') whitePhaseAccs.push(acc);
+      else blackPhaseAccs.push(acc);
+
+      if (
+        m.turn === userColor &&
+        (m.classification === 'inaccuracy' ||
+          m.classification === 'mistake' ||
+          m.classification === 'miss' ||
+          m.classification === 'blunder')
+      ) {
+        userErrors.push({
+          ply: m.ply + 1,
+          moveNum: m.moveNumber,
+          san: m.san,
+          classification: m.classification,
+          winDrop: Math.round(drop * 10) / 10,
+          bestSan: m.bestMove?.san ?? null,
+        });
+      }
+    }
+
+    const avg = (arr: number[]) =>
+      arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null;
+
+    return {
+      startPly,
+      endPly: clampedEnd,
+      whiteAccuracy: avg(whitePhaseAccs),
+      blackAccuracy: avg(blackPhaseAccs),
+      userErrors,
+    };
+  };
+
+  const openingPhase = buildPhaseData(1, mgStart - 1);
+  const middlegamePhase = middlegameStartPly !== null ? buildPhaseData(mgStart, egStart - 1) : null;
+  const endgamePhase = endgameStartPly !== null ? buildPhaseData(egStart, totalPlies) : null;
+
+  // Costliest Move for User (winDrop >= 5%)
+  let costliestMove: PhaseMoment | null = null;
+  for (const m of moves) {
+    if (m.turn !== userColor) continue;
+    if (
+      m.classification !== 'inaccuracy' &&
+      m.classification !== 'mistake' &&
+      m.classification !== 'miss' &&
+      m.classification !== 'blunder'
+    ) {
+      continue;
+    }
+    const wBefore = m.winProbBefore ?? centipawnsToWinProb(m.turn === 'white' ? m.evalBeforeCp : -m.evalBeforeCp);
+    const wAfter = m.winProbAfter ?? centipawnsToWinProb(m.turn === 'white' ? m.evalAfterCp : -m.evalAfterCp);
+    const drop = Math.round(Math.max(0, wBefore - wAfter) * 10) / 10;
+    if (drop >= 5 && (!costliestMove || drop > costliestMove.winDrop)) {
+      costliestMove = {
+        ply: m.ply + 1,
+        moveNum: m.moveNumber,
+        san: m.san,
+        classification: m.classification,
+        winDrop: drop,
+        bestSan: m.bestMove?.san ?? null,
+      };
+    }
+  }
+
+  // Clocks & Move Times
+  const clocks = extractPgnClocks(game.pgn || '');
+  let longestThink: { ply: number; moveNum: number; san: string; timeSeconds: number } | null = null;
+  const whiteTimes: number[] = [];
+  const blackTimes: number[] = [];
+
+  if (clocks.length >= 4) {
+    for (let idx = 2; idx < Math.min(clocks.length, moves.length); idx++) {
+      const spent = Math.max(0, clocks[idx - 2] - clocks[idx]);
+      const mv = moves[idx];
+      if (!mv) continue;
+      if (mv.turn === 'white') whiteTimes.push(spent);
+      else blackTimes.push(spent);
+
+      if (mv.turn === userColor && spent >= 3 && (!longestThink || spent > longestThink.timeSeconds)) {
+        longestThink = {
+          ply: mv.ply + 1,
+          moveNum: mv.moveNumber,
+          san: mv.san,
+          timeSeconds: Math.round(spent),
+        };
+      }
+    }
+  }
+
+  // ACPL (Average Centipawn Loss excluding book moves, clamped to 1000cp per move)
+  const computeAcpl = (side: 'white' | 'black'): number | null => {
+    const sideMoves = moves.filter((m) => m.turn === side && m.classification !== 'book');
+    if (sideMoves.length === 0) return null;
+    const totalLoss = sideMoves.reduce((sum, m) => sum + Math.min(1000, Math.max(0, m.centipawnLoss)), 0);
+    return Math.round(totalLoss / sideMoves.length);
+  };
+
+  const ecoFromPgn =
+    (game as unknown as { eco?: string }).eco ||
+    game.pgn?.match(/\[ECO\s+"([^"]+)"\]/)?.[1] ||
+    null;
+
+  return {
+    openingName: game.opening || 'Standard Opening',
+    openingEco: ecoFromPgn,
+    lastBookPly,
+    phases: {
+      opening: openingPhase,
+      middlegame: middlegamePhase,
+      endgame: endgamePhase,
+    },
+    costliestMove,
+    longestThink,
+    whitePerformanceRating: estimatePerformanceRating(review.whiteAccuracy, game.whiteRating),
+    blackPerformanceRating: estimatePerformanceRating(review.blackAccuracy, game.blackRating),
+    whiteAcpl: computeAcpl('white'),
+    blackAcpl: computeAcpl('black'),
+    whiteAvgMoveTime:
+      whiteTimes.length > 0 ? Math.round(whiteTimes.reduce((a, b) => a + b, 0) / whiteTimes.length) : null,
+    blackAvgMoveTime:
+      blackTimes.length > 0 ? Math.round(blackTimes.reduce((a, b) => a + b, 0) / blackTimes.length) : null,
+  };
+}
+
+/**
+ * End-of-Game King Result Badges (P in game-result-badges-B_NWchof.js)
+ * Returns badges for both Kings at the final position of the game.
+ */
+export function getGameResultBadges(finalFen: string, result?: string, pgn?: string): GameResultBadge[] {
+  const findKingSquare = (fen: string, kingChar: 'K' | 'k'): string | null => {
+    const ranks = (fen.split(' ')[0] ?? '').split('/');
+    for (let r = 0; r < ranks.length; r++) {
+      let f = 0;
+      for (const ch of ranks[r]) {
+        if (ch >= '1' && ch <= '8') {
+          f += Number(ch);
+        } else {
+          if (ch === kingChar) {
+            return `${String.fromCharCode(97 + f)}${8 - r}`;
+          }
+          f += 1;
+        }
+      }
+    }
+    return null;
+  };
+
+  const wKing = findKingSquare(finalFen, 'K');
+  const bKing = findKingSquare(finalFen, 'k');
+  if (!wKing || !bKing) return [];
+
+  if (result === '1/2-1/2') {
+    return [
+      { square: wKing, color: '#64748b', glyph: '½' },
+      { square: bKing, color: '#64748b', glyph: '½' },
+    ];
+  }
+
+  if (result !== '1-0' && result !== '0-1') return [];
+
+  const winnerSquare = result === '1-0' ? wKing : bKing;
+  const loserSquare = result === '1-0' ? bKing : wKing;
+
+  const isCheckmate = finalFen.includes('#') || (() => {
+    try {
+      return new Chess(finalFen).isCheckmate();
+    } catch {
+      return false;
+    }
+  })();
+
+  const pgnLower = (pgn || '').toLowerCase();
+  const isTimeout = pgnLower.includes('time') || pgnLower.includes('forfeit on time');
+
+  const loserBadge: GameResultBadge = isCheckmate
+    ? { square: loserSquare, color: '#c81e3a', glyph: '#' }
+    : isTimeout
+      ? { square: loserSquare, color: '#64748b', icon: 'clock', glyph: '⏱' }
+      : { square: loserSquare, color: '#64748b', icon: 'flag', glyph: '⚑' };
+
+  return [
+    { square: winnerSquare, color: '#15803d', icon: 'crown', glyph: '♛' },
+    loserBadge,
+  ];
 }
 
 const PIECE_VALUES: Record<string, number> = {
@@ -545,6 +929,12 @@ function generateCoachComment(
             : `Coordinates pieces purposefully while maximizing square control and activity.`,
       };
 
+    case 'forced':
+      return {
+        comment: `${san} is the only legal move.`,
+        explanation: 'No other options were available in this position.',
+      };
+
     case 'excellent':
       return {
         comment: `${san} is an excellent move, very close to the optimal engine choice.`,
@@ -638,6 +1028,7 @@ export async function analyzeFullGameAsync(
       brilliant: 0,
       great: 0,
       best: 0,
+      forced: 0,
       excellent: 0,
       good: 0,
       book: 0,
@@ -650,6 +1041,7 @@ export async function analyzeFullGameAsync(
       brilliant: 0,
       great: 0,
       best: 0,
+      forced: 0,
       excellent: 0,
       good: 0,
       book: 0,
@@ -780,23 +1172,52 @@ export async function analyzeFullGameAsync(
     const winLoss = Math.max(0, winProbBefore - winProbAfter);
     const winGain = winProbAfter - winProbBefore;
 
-    // Check opening book
+    // Check opening book & Repertoire match / deviation / transposition (ChessAtlas Rn/yr)
     const nodeIdBefore = fenToNodeId(fenBefore);
+    const nodeIdAfter = fenToNodeId(fenAfter);
     let isBook = false;
-    if (dag && repertoire) {
-      const repEdges = dag.getEdgesFrom(nodeIdBefore).filter((e) => e.repertoireId === repertoire.id);
-      if (repEdges.some((e) => e.san === move.san)) {
-        isBook = true;
+    let isRepertoireMove = false;
+    let isDeviation = false;
+    let expectedRepertoireSan: string | undefined;
+    let isTransposition = false;
+
+    if (dag) {
+      const repEdges = dag
+        .getEdgesFrom(nodeIdBefore)
+        .filter((e) => !repertoire || e.repertoireId === repertoire.id);
+      if (repEdges.length > 0) {
+        if (repEdges.some((e) => e.san === move.san)) {
+          isBook = true;
+          isRepertoireMove = true;
+        } else if (turn === userColor) {
+          isDeviation = true;
+          expectedRepertoireSan = repEdges[0].san;
+        }
+      } else if (dag.getNode(nodeIdAfter)) {
+        const afterEdges = dag
+          .getEdgesFrom(nodeIdAfter)
+          .filter((e) => !repertoire || e.repertoireId === repertoire.id);
+        if (afterEdges.length > 0) {
+          isTransposition = true;
+        }
       }
     }
     if (!isBook && ply < 12 && COMMON_BOOK_LINES.has(move.san)) {
       isBook = true;
     }
 
-    // Move Classification (Official Chess.com Classification V2 Expected Points Thresholds)
+    // Check Forced Move (Mr(fenBefore) <= 1 in useEngineEnabled-CClyn6Sc.js)
+    let legalMovesCount = 20;
+    try {
+      legalMovesCount = new Chess(fenBefore).moves().length;
+    } catch {}
+
+    // Move Classification (Official ChessAtlas / Chess.com Classification V2 Expected Points Thresholds)
     let classification: MoveClassification;
 
-    if (lichessJudgment) {
+    if (legalMovesCount <= 1) {
+      classification = 'forced';
+    } else if (lichessJudgment) {
       if (lichessJudgment === 'Blunder') classification = 'blunder';
       else if (lichessJudgment === 'Mistake') classification = 'mistake';
       else if (lichessJudgment === 'Inaccuracy') classification = 'inaccuracy';
@@ -911,6 +1332,13 @@ export async function analyzeFullGameAsync(
       comment,
       tacticalExplanation: explanation,
       engineSource,
+      isRepertoireMove,
+      isDeviation,
+      expectedRepertoireSan,
+      isTransposition,
+      winProbBefore,
+      winProbAfter,
+      moveAccuracy,
     });
   }
 

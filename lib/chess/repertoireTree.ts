@@ -84,6 +84,7 @@ export function extractRepertoireLines(
     moveNumber: number;
     fenBefore: string;
     fenAfter: string;
+    isBranchPoint: boolean;
   }
 
   function dfs(currentNodeId: string, currentFen: string, path: PathStep[]) {
@@ -106,14 +107,24 @@ export function extractRepertoireLines(
         const nodeIds = [rootNodeId, ...path.map((p) => p.edge.toNodeId)];
         const formatted = formatLineString(lineMoves);
 
-        // Derive title from key moves
+        // ChessAtlas Smart Variation Naming (variation-tree-D0EpKHrD.js):
+        // Main Line if no sidelines taken; otherwise named after the branching moves!
+        const branchSteps = path.filter((p) => p.isBranchPoint);
+        const isMainLine = lines.length === 0 || branchSteps.length === 0;
         const lastMove = lineMoves[lineMoves.length - 1];
-        const isMainLine = lines.length === 0;
 
-        let title = isMainLine ? 'Main Line' : `Variation with ${lastMove?.san || ''}`;
-        if (lineMoves.length >= 3) {
-          const starter = lineMoves.slice(0, Math.min(4, lineMoves.length)).map((m) => m.san).join(' ');
-          title = `${starter} ... ${lastMove?.san || ''}`;
+        let title = 'Main Line';
+        if (!isMainLine && branchSteps.length > 0) {
+          if (branchSteps.length === 1) {
+            const b = branchSteps[0];
+            title = `Line after ${b.moveNumber}${b.isWhite ? '.' : '...'} ${b.edge.san}`;
+          } else {
+            title = branchSteps
+              .map((b) => `${b.moveNumber}${b.isWhite ? '.' : '...'} ${b.edge.san}`)
+              .join(' · ');
+          }
+        } else if (!isMainLine && lastMove) {
+          title = `Line with ${lastMove.moveNumber}${lastMove.isWhite ? '.' : '...'} ${lastMove.san}`;
         }
 
         lines.push({
@@ -132,7 +143,8 @@ export function extractRepertoireLines(
     // Sort edges by sortOrder (main line is sortOrder 0)
     outgoing.sort((a, b) => a.sortOrder - b.sortOrder);
 
-    for (const edge of outgoing) {
+    for (let edgeIdx = 0; edgeIdx < outgoing.length; edgeIdx++) {
+      const edge = outgoing[edgeIdx];
       const chess = new Chess(currentFen);
       try {
         const m = chess.move(edge.san);
@@ -151,6 +163,7 @@ export function extractRepertoireLines(
                 moveNumber,
                 fenBefore: currentFen,
                 fenAfter: nextFen,
+                isBranchPoint: outgoing.length > 1 && edgeIdx > 0,
               },
             ]);
           }

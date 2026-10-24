@@ -13,7 +13,7 @@ import { playMoveSound, playCaptureSound, playCheckSound, playErrorSound } from 
 export interface ClassificationBadge {
   square: string;
   color: string;
-  glyph: string;
+  glyph?: string;
   icon?: string;
 }
 
@@ -26,6 +26,11 @@ interface ChessBoardProps {
   arrows?: Array<{ from: string; to: string; color: string }>;
   showCoordinates?: boolean;
   classificationBadge?: ClassificationBadge | null;
+  pieceBadges?: ClassificationBadge[] | null;
+  correctSquares?: [string, string] | null;
+  incorrectSquares?: [string, string] | null;
+  alternativeSquares?: [string, string] | null;
+  dimmed?: boolean;
 }
 
 export default function ChessBoard({
@@ -37,6 +42,11 @@ export default function ChessBoard({
   arrows = [],
   showCoordinates = true,
   classificationBadge = null,
+  pieceBadges = null,
+  correctSquares = null,
+  incorrectSquares = null,
+  alternativeSquares = null,
+  dimmed = false,
 }: ChessBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<Api | null>(null);
@@ -189,26 +199,35 @@ export default function ChessBoard({
     }
   }, [chess, orientation, interactive, legalDests, lastMove, showCoordinates, autoShapes, handleAfterMove]);
 
+  // Helper to convert algebraic square ("e4") to percentage CSS coordinates
+  const getSquareStyle = useCallback(
+    (square: string | undefined | null) => {
+      if (!square || square.length < 2) return null;
+      const file = square[0].toLowerCase();
+      const rank = parseInt(square[1], 10);
+      if (file < 'a' || file > 'h' || isNaN(rank) || rank < 1 || rank > 8) return null;
+
+      const fileIdx = file.charCodeAt(0) - 97; // 0..7
+      const rankIdx = rank - 1; // 0..7
+
+      const col = orientation === 'white' ? fileIdx : 7 - fileIdx;
+      const row = orientation === 'white' ? 7 - rankIdx : rankIdx;
+
+      return {
+        left: `${(col * 100) / 8}%`,
+        top: `${(row * 100) / 8}%`,
+        width: `${100 / 8}%`,
+        height: `${100 / 8}%`,
+      };
+    },
+    [orientation]
+  );
+
   // Destination square badge overlay calculation
-  const badgePosition = useMemo(() => {
-    if (!classificationBadge || !classificationBadge.square || classificationBadge.square.length < 2) return null;
-    const file = classificationBadge.square[0].toLowerCase();
-    const rank = parseInt(classificationBadge.square[1], 10);
-    if (file < 'a' || file > 'h' || isNaN(rank) || rank < 1 || rank > 8) return null;
-
-    const fileIdx = file.charCodeAt(0) - 97; // 0..7
-    const rankIdx = rank - 1; // 0..7
-
-    const col = orientation === 'white' ? fileIdx : 7 - fileIdx;
-    const row = orientation === 'white' ? 7 - rankIdx : rankIdx;
-
-    return {
-      left: `${(col * 100) / 8}%`,
-      top: `${(row * 100) / 8}%`,
-      width: `${100 / 8}%`,
-      height: `${100 / 8}%`,
-    };
-  }, [classificationBadge, orientation]);
+  const badgePosition = useMemo(
+    () => getSquareStyle(classificationBadge?.square),
+    [classificationBadge, getSquareStyle]
+  );
 
   // Clean up
   useEffect(() => {
@@ -219,7 +238,11 @@ export default function ChessBoard({
   }, []);
 
   return (
-    <div className="relative select-none aspect-square w-full max-w-[640px] mx-auto rounded-xl shadow-2xl overflow-hidden border border-white/10 bg-[#1e293b]">
+    <div
+      className={`relative select-none aspect-square w-full max-w-[640px] mx-auto rounded-xl shadow-2xl overflow-hidden border border-white/10 bg-[#1e293b] transition-opacity duration-200 ${
+        dimmed ? 'opacity-80' : ''
+      }`}
+    >
       {/* Chessground DOM container */}
       <div
         ref={containerRef}
@@ -229,6 +252,41 @@ export default function ChessBoard({
           height: '100%',
         }}
       />
+
+      {/* Square Status Highlights (ChessAtlas Correct / Incorrect / Alternative move feedback) */}
+      {correctSquares?.map((sq, idx) => {
+        const pos = getSquareStyle(sq);
+        if (!pos) return null;
+        return (
+          <div
+            key={`correct-${sq}-${idx}`}
+            className="pointer-events-none absolute z-20 bg-emerald-500/35 ring-2 ring-inset ring-emerald-400/70 transition-all"
+            style={pos}
+          />
+        );
+      })}
+      {incorrectSquares?.map((sq, idx) => {
+        const pos = getSquareStyle(sq);
+        if (!pos) return null;
+        return (
+          <div
+            key={`incorrect-${sq}-${idx}`}
+            className="pointer-events-none absolute z-20 bg-rose-500/45 ring-2 ring-inset ring-rose-400/80 transition-all"
+            style={pos}
+          />
+        );
+      })}
+      {alternativeSquares?.map((sq, idx) => {
+        const pos = getSquareStyle(sq);
+        if (!pos) return null;
+        return (
+          <div
+            key={`alt-${sq}-${idx}`}
+            className="pointer-events-none absolute z-20 bg-amber-500/40 ring-2 ring-inset ring-amber-400/80 transition-all"
+            style={pos}
+          />
+        );
+      })}
 
       {/* Destination square classification badge glyph */}
       {badgePosition && classificationBadge && (
@@ -249,6 +307,26 @@ export default function ChessBoard({
           </div>
         </div>
       )}
+
+      {/* End-of-game King Result Badges (ChessAtlas pieceBadges: Crown, #, Flag, Clock, ½) */}
+      {pieceBadges?.map((b, idx) => {
+        const pos = getSquareStyle(b.square);
+        if (!pos) return null;
+        return (
+          <div
+            key={`piece-badge-${b.square}-${idx}`}
+            className="pointer-events-none absolute z-30 flex items-start justify-end p-0.5 sm:p-1"
+            style={pos}
+          >
+            <div
+              className="flex size-5 sm:size-6 items-center justify-center rounded-full shadow-lg font-black text-[11px] sm:text-xs text-white border border-white/50 ring-1 ring-black/50"
+              style={{ backgroundColor: b.color }}
+            >
+              {b.glyph || (b.icon === 'crown' ? '♛' : b.icon === 'flag' ? '⚑' : b.icon === 'clock' ? '⏱' : '')}
+            </div>
+          </div>
+        );
+      })}
 
       {/* Interactive Promotion Dialog */}
       <AnimatePresence>

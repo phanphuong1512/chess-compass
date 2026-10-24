@@ -45,12 +45,15 @@ interface TrainingSessionProps {
   chapterTitle?: string;
   lines?: RepertoireLine[];
   filterNodeIds?: string[] | null;
+  mode?: 'learn' | 'review' | 'overstudy';
 }
 
 type TrainingPhase =
   | 'showing'            // User's turn to play
   | 'opponent_thinking'  // Opponent auto-responding
   | 'incorrect'          // User made a mistake, prompt to retry
+  | 'preparing_retry'    // ChessAtlas 1.4s transition before retrying missed moves at end of line
+  | 'retrying_missed'    // ChessAtlas end-of-line drill of missed moves
   | 'line_complete'      // Completed all moves in current line
   | 'session_complete';  // Completed all lines in training set
 
@@ -60,6 +63,7 @@ interface PlayedMoveRecord {
   turn: 'white' | 'black';
   isCorrect: boolean;
   moveNumber: number;
+  fenAfter: string;
 }
 
 export default function TrainingSession({
@@ -73,6 +77,7 @@ export default function TrainingSession({
   chapterTitle,
   lines: providedLines,
   filterNodeIds,
+  mode: initialMode = 'learn',
 }: TrainingSessionProps) {
   // 1. Build discrete playable lines from the Repertoire DAG
   const trainingLines = useMemo(() => {
@@ -133,6 +138,7 @@ export default function TrainingSession({
   }, [providedLines, filterNodeIds, nodes, edges, allCards]);
 
   // Session State
+  const [trainingMode, setTrainingMode] = useState<'learn' | 'review' | 'overstudy'>(initialMode);
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const [stepIndex, setStepIndex] = useState(0);
   const [phase, setPhase] = useState<TrainingPhase>('showing');
@@ -141,6 +147,17 @@ export default function TrainingSession({
   const [linesCompleted, setLinesCompleted] = useState(0);
   const [totalAttempts, setTotalAttempts] = useState(0);
   const [correctAttempts, setCorrectAttempts] = useState(0);
+
+  // ChessAtlas Missed-Move Retry & Feedback State (useVariationPage-DuKpsf-3.js)
+  const [attemptsOnMove, setAttemptsOnMove] = useState(0);
+  const [missedSteps, setMissedSteps] = useState<number[]>([]);
+  const [retryQueueIdx, setRetryQueueIdx] = useState(0);
+  const [alternativeMoveBanner, setAlternativeMoveBanner] = useState<string | null>(null);
+  const [tempBoardFen, setTempBoardFen] = useState<string | null>(null);
+  const [correctSquares, setCorrectSquares] = useState<[string, string] | null>(null);
+  const [incorrectSquares, setIncorrectSquares] = useState<[string, string] | null>(null);
+  const [alternativeSquares, setAlternativeSquares] = useState<[string, string] | null>(null);
+  const [previewMoveIdx, setPreviewMoveIdx] = useState<number | null>(null);
 
   // Floating XP feedback state
   const [floatingXP, setFloatingXP] = useState<{ id: number; amount: number } | null>(null);
@@ -156,15 +173,48 @@ export default function TrainingSession({
   const [showingHint, setShowingHint] = useState(false);
   const [wrongMoveFeedback, setWrongMoveFeedback] = useState<string | null>(null);
 
+  // Active target step (normal stepIndex or missedSteps[retryQueueIdx] when retrying missed moves)
+  const activeStepIndex = phase === 'retrying_missed' ? (missedSteps[retryQueueIdx] ?? stepIndex) : stepIndex;
+
   // FEN-derived turn ('white' | 'black')
   const currentTurn: 'white' | 'black' = currentFen.split(' ')[1] === 'w' ? 'white' : 'black';
-  const isUserTurn = currentTurn === orientation;
+  const isUserTurn = currentTurn === orientation || phase === 'retrying_missed';
+
+  // Displayed FEN on board (supports temporary wrong/alternative move snapback & breadcrumb preview)
+  const displayedFen = useMemo(() => {
+    if (previewMoveIdx !== null && playedMoves[previewMoveIdx]) {
+      return playedMoves[previewMoveIdx].fenAfter;
+    }
+    return tempBoardFen ?? currentFen;
+  }, [previewMoveIdx, playedMoves, tempBoardFen, currentFen]);
 
   // Material evaluation for current position
-  const boardMaterial = useMemo(() => calculateMaterial(currentFen), [currentFen]);
+  const boardMaterial = useMemo(() => calculateMaterial(displayedFen), [displayedFen]);
 
   // Expected move for the active step in the line
-  const expectedMove: LineMove | undefined = activeLine?.moves[stepIndex];
+  const expectedMove: LineMove | undefined = activeLine?.moves[activeStepIndex];
+
+  // Effective arrows on board (in 'learn' mode, automatically shows the guided arrow zn!)
+  const effectiveArrows = useMemo(() => {
+    if (previewMoveIdx !== null) return [];
+    if (boardArrows.length > 0) return boardArrows;
+    if (
+      trainingMode === 'learn' &&
+      isUserTurn &&
+      (phase === 'showing' || phase === 'incorrect') &&
+      expectedMove &&
+      expectedMove.uci.length >= 4
+    ) {
+      return [
+        {
+          from: expectedMove.uci.slice(0, 2),
+          to: expectedMove.uci.slice(2, 4),
+          color: '#10B981',
+        },
+      ];
+    }
+    return [];
+  }, [previewMoveIdx, boardArrows, trainingMode, isUserTurn, phase, expectedMove]);
 
   // Audio helper
   const triggerAudio = useCallback((san: string, isCapture = false) => {
@@ -193,6 +243,15 @@ export default function TrainingSession({
     setBoardArrows([]);
     setShowingHint(false);
     setWrongMoveFeedback(null);
+    setAlternativeMoveBanner(null);
+    setAttemptsOnMove(0);
+    setMissedSteps([]);
+    setRetryQueueIdx(0);
+    setTempBoardFen(null);
+    setCorrectSquares(null);
+    setIncorrectSquares(null);
+    setAlternativeSquares(null);
+    setPreviewMoveIdx(null);
     setPhase('showing');
   }, [trainingLines]);
 
@@ -205,13 +264,51 @@ export default function TrainingSession({
     }
   }, [trainingLines.length, loadLine]);
 
+  // Helper to finish line or transition into ChessAtlas missed-moves retry (preparing_retry -> retrying_missed)
+  const finishOrRetryMissed = useCallback(
+    (missedList: number[]) => {
+      if (missedList.length > 0 && activeLine) {
+        setPhase('preparing_retry');
+        setTimeout(() => {
+          const firstMissedIdx = missedList[0];
+          const targetMove = activeLine.moves[firstMissedIdx];
+          if (targetMove) {
+            setRetryQueueIdx(0);
+            setCurrentFen(targetMove.fromFen);
+            setBoardArrows([]);
+            setShowingHint(false);
+            setWrongMoveFeedback(null);
+            setAlternativeMoveBanner(null);
+            setCorrectSquares(null);
+            setPhase('retrying_missed');
+          } else {
+            setPhase('line_complete');
+            setLinesCompleted((l) => l + 1);
+          }
+        }, 1400);
+      } else {
+        setPhase('line_complete');
+        setLinesCompleted((l) => l + 1);
+      }
+    },
+    [activeLine]
+  );
+
   // =========================================================================
   // AUTOMATED OPPONENT RESPONSE ENGINE (ChessAtlas Exact Feature)
   // When it is NOT the user's turn (e.g. Black in White repertoire, or White in Black repertoire)
   // the computer automatically plays the repertoire's prepared response after natural delay (380ms)
   // =========================================================================
   useEffect(() => {
-    if (phase === 'session_complete' || phase === 'line_complete' || !activeLine) return;
+    if (
+      phase === 'session_complete' ||
+      phase === 'line_complete' ||
+      phase === 'preparing_retry' ||
+      phase === 'retrying_missed' ||
+      !activeLine
+    ) {
+      return;
+    }
 
     // Check if it's the opponent's turn to move
     if (!isUserTurn) {
@@ -219,8 +316,7 @@ export default function TrainingSession({
 
       const opponentMove = activeLine.moves[stepIndex];
       if (!opponentMove) {
-        setPhase('line_complete');
-        setLinesCompleted((l) => l + 1);
+        finishOrRetryMissed(missedSteps);
         return;
       }
 
@@ -247,6 +343,7 @@ export default function TrainingSession({
             triggerAudio(executed.san, !!executed.captured);
             const nextFen = chess.fen();
             setCurrentFen(nextFen);
+            setCorrectSquares(null);
 
             const fromSq = executed.from;
             const toSq = executed.to;
@@ -267,6 +364,7 @@ export default function TrainingSession({
                 turn: currentTurn,
                 isCorrect: true,
                 moveNumber: chess.moveNumber(),
+                fenAfter: nextFen,
               },
             ]);
 
@@ -275,8 +373,7 @@ export default function TrainingSession({
 
             // Check if line finished after opponent's move
             if (nextStep >= activeLine.moves.length) {
-              setPhase('line_complete');
-              setLinesCompleted((l) => l + 1);
+              finishOrRetryMissed(missedSteps);
             } else {
               setPhase('showing');
             }
@@ -289,34 +386,64 @@ export default function TrainingSession({
 
       return () => clearTimeout(timer);
     }
-  }, [isUserTurn, phase, activeLine, stepIndex, currentFen, currentTurn, triggerAudio]);
+  }, [isUserTurn, phase, activeLine, stepIndex, currentFen, currentTurn, triggerAudio, finishOrRetryMissed, missedSteps]);
 
   // =========================================================================
-  // USER MOVE HANDLER
-  // Validates user's move against primary line or any prepared repertoire edge
+  // USER MOVE HANDLER (ChessAtlas Exact State Machine: Correct / Alternative / Wrong / Retry)
   // =========================================================================
   const handleMove = useCallback(
     (move: { from: string; to: string; san: string; promotion?: string }) => {
-      if (!isUserTurn || (phase !== 'showing' && phase !== 'incorrect') || !activeLine) return;
+      if (
+        !isUserTurn ||
+        (phase !== 'showing' && phase !== 'incorrect' && phase !== 'retrying_missed') ||
+        !activeLine ||
+        tempBoardFen !== null
+      ) {
+        return;
+      }
 
+      setPreviewMoveIdx(null);
       setTotalAttempts((a) => a + 1);
 
-      // 1. Check if matches primary expected move for this line
+      // 1. Check if matches primary expected move for this line/step
       const matchesExpected =
         expectedMove &&
         (expectedMove.san === move.san ||
           expectedMove.uci.startsWith(move.from + move.to));
 
-      // 2. Also check if matches ANY valid edge prepared in the DAG from this node
+      // 2. Check if matches ANOTHER valid edge prepared in the DAG from this node (USER_MOVE_ALTERNATIVE)
       const currentNodeId = fenToNodeId(currentFen);
       const validEdges = edges.get(currentNodeId) || [];
-      const matchedAlternative = validEdges.find(
-        (e) => e.san === move.san || (e.uci && e.uci.startsWith(move.from + move.to))
-      );
+      const matchedAlternative =
+        !matchesExpected &&
+        validEdges.find(
+          (e) => e.san === move.san || (e.uci && e.uci.startsWith(move.from + move.to))
+        );
 
-      const isCorrect = matchesExpected || !!matchedAlternative;
+      // CASE A: Alternative Repertoire Move (ChessAtlas USER_MOVE_ALTERNATIVE — 1100ms amber highlight & snapback!)
+      if (matchedAlternative) {
+        try {
+          const chess = new Chess(currentFen);
+          const executed = chess.move(move);
+          if (executed) {
+            triggerAudio(move.san, !!executed.captured);
+            setTempBoardFen(chess.fen());
+            setAlternativeSquares([move.from, move.to]);
+            setWrongMoveFeedback(null);
+            setAlternativeMoveBanner(
+              `${move.san} is another move in your repertoire — try the move for this variation!`
+            );
+            setTimeout(() => {
+              setTempBoardFen(null);
+              setAlternativeSquares(null);
+            }, 1100);
+          }
+        } catch {}
+        return;
+      }
 
-      if (isCorrect) {
+      // CASE B: Matches Expected Move for Active Variation
+      if (matchesExpected) {
         try {
           const chess = new Chess(currentFen);
           const executed = chess.move(move);
@@ -327,24 +454,16 @@ export default function TrainingSession({
           const nextFen = chess.fen();
           setCurrentFen(nextFen);
           setLastMoveHighlight({ from: move.from, to: move.to });
+          setCorrectSquares([move.from, move.to]);
           setBoardArrows([]);
           setShowingHint(false);
           setWrongMoveFeedback(null);
+          setAlternativeMoveBanner(null);
+          setAttemptsOnMove(0);
 
           // Trigger +10 XP float animation
           setFloatingXP({ id: Date.now(), amount: 10 });
           setTimeout(() => setFloatingXP(null), 1200);
-
-          setPlayedMoves((prev) => [
-            ...prev,
-            {
-              san: executed.san,
-              uci: `${move.from}${move.to}`,
-              turn: currentTurn,
-              isCorrect: true,
-              moveNumber: chess.moveNumber(),
-            },
-          ]);
 
           setCorrectAttempts((c) => c + 1);
           setStreak((s) => {
@@ -353,11 +472,52 @@ export default function TrainingSession({
             return next;
           });
 
+          // If we are in End-of-Line Retry of Missed Moves (retrying_missed)
+          if (phase === 'retrying_missed') {
+            if (retryQueueIdx + 1 < missedSteps.length) {
+              const nextRetryIdx = retryQueueIdx + 1;
+              const nextMissedStep = missedSteps[nextRetryIdx];
+              const nextTarget = activeLine.moves[nextMissedStep];
+              setTimeout(() => {
+                setRetryQueueIdx(nextRetryIdx);
+                setCurrentFen(nextTarget?.fromFen || nextFen);
+                setCorrectSquares(null);
+              }, 550);
+            } else {
+              setTimeout(() => {
+                setCorrectSquares(null);
+                setPhase('line_complete');
+                setLinesCompleted((l) => l + 1);
+              }, 550);
+            }
+            return;
+          }
+
+          setPlayedMoves((prev) => [
+            ...prev,
+            {
+              san: executed.san,
+              uci: `${move.from}${move.to}`,
+              turn: currentTurn,
+              isCorrect: attemptsOnMove === 0 && !showingHint,
+              moveNumber: chess.moveNumber(),
+              fenAfter: nextFen,
+            },
+          ]);
+
           // Update FSRS card for this position
           const card = allCards.find((c) => c.nodeId === currentNodeId);
           if (card) {
-            const { card: updated } = scheduleReview(card, showingHint ? 2 : 3);
+            const { card: updated } = scheduleReview(card, showingHint || attemptsOnMove > 0 ? 2 : 3);
             onUpdateCard(updated);
+          }
+
+          const updatedMissed =
+            showingHint && !missedSteps.includes(stepIndex)
+              ? [...missedSteps, stepIndex]
+              : missedSteps;
+          if (updatedMissed !== missedSteps) {
+            setMissedSteps(updatedMissed);
           }
 
           const nextStep = stepIndex + 1;
@@ -365,8 +525,7 @@ export default function TrainingSession({
 
           // Check if user completed the line
           if (nextStep >= activeLine.moves.length) {
-            setPhase('line_complete');
-            setLinesCompleted((l) => l + 1);
+            finishOrRetryMissed(updatedMissed);
           } else {
             // Next turn will be opponent's turn -> triggers auto-response in useEffect
             setPhase('opponent_thinking');
@@ -375,11 +534,46 @@ export default function TrainingSession({
           playErrorSound();
         }
       } else {
-        // Wrong move
+        // CASE C: Wrong Move (ChessAtlas USER_MOVE_INCORRECT — 600ms red square highlight & snapback!)
         playErrorSound();
         setStreak(0);
-        setWrongMoveFeedback(`Not in your repertoire: ${move.san}. Try again!`);
-        setPhase('incorrect');
+        const nextAttempt = attemptsOnMove + 1;
+        setAttemptsOnMove(nextAttempt);
+        setAlternativeMoveBanner(null);
+        setWrongMoveFeedback(`Incorrect move: ${move.san} (Attempt ${nextAttempt})`);
+
+        if (phase !== 'retrying_missed' && !missedSteps.includes(stepIndex)) {
+          setMissedSteps((prev) => [...prev, stepIndex]);
+        }
+        if (phase !== 'retrying_missed') {
+          setPhase('incorrect');
+        }
+
+        // Temporarily show wrong move on board for 600ms before snapping back (ChessAtlas WRONG_MOVE_DISPLAY = 600)
+        try {
+          const chess = new Chess(currentFen);
+          const executed = chess.move(move);
+          if (executed) {
+            setTempBoardFen(chess.fen());
+            setIncorrectSquares([move.from, move.to]);
+            setTimeout(() => {
+              setTempBoardFen(null);
+              setIncorrectSquares(null);
+            }, 600);
+          }
+        } catch {}
+
+        // After 2 failed attempts on the same move, automatically reveal hint arrow (ChessAtlas behavior)
+        if (nextAttempt >= 2 && expectedMove) {
+          setShowingHint(true);
+          setBoardArrows([
+            {
+              from: expectedMove.uci.slice(0, 2),
+              to: expectedMove.uci.slice(2, 4),
+              color: '#10B981',
+            },
+          ]);
+        }
 
         // Update card rating to Again (1)
         const card = allCards.find((c) => c.nodeId === currentNodeId);
@@ -393,15 +587,20 @@ export default function TrainingSession({
       isUserTurn,
       phase,
       activeLine,
+      tempBoardFen,
       expectedMove,
       currentFen,
       edges,
       currentTurn,
       showingHint,
+      attemptsOnMove,
+      missedSteps,
+      retryQueueIdx,
       allCards,
       stepIndex,
       triggerAudio,
       onUpdateCard,
+      finishOrRetryMissed,
     ]
   );
 
@@ -562,8 +761,36 @@ export default function TrainingSession({
           </div>
         </div>
 
-        {/* Center/Right Gamification: Streak + Floating XP + Exit */}
-        <div className="flex items-center gap-3">
+        {/* Center/Right Gamification: Mode Switcher + Streak + Floating XP + Exit */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Guided Learn vs Recall Review Mode Toggle (ChessAtlas mode switcher) */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 p-0.5 text-[11px] font-bold">
+            <button
+              type="button"
+              onClick={() => setTrainingMode('learn')}
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                trainingMode === 'learn'
+                  ? 'bg-emerald-500 text-stone-950 shadow-sm'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+              title="Guided mode with move arrows"
+            >
+              Learn
+            </button>
+            <button
+              type="button"
+              onClick={() => setTrainingMode('review')}
+              className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                trainingMode !== 'learn'
+                  ? 'bg-amber-400 text-stone-950 shadow-sm'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+              title="Recall mode from memory"
+            >
+              Review
+            </button>
+          </div>
+
           {/* Streak Flame Badge */}
           <div className="flex items-center gap-1 text-xs font-bold font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-full shadow-inner">
             <Fire size={15} weight="fill" className="text-amber-400 animate-pulse" />
@@ -612,13 +839,43 @@ export default function TrainingSession({
           {/* Interactive ChessBoard Container */}
           <div className="aspect-square relative w-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#141B29]">
             <ChessBoard
-              fen={currentFen}
+              fen={displayedFen}
               orientation={orientation}
-              onMove={isUserTurn && (phase === 'showing' || phase === 'incorrect') ? handleMove : undefined}
-              interactive={isUserTurn && (phase === 'showing' || phase === 'incorrect')}
+              onMove={
+                previewMoveIdx === null &&
+                tempBoardFen === null &&
+                isUserTurn &&
+                (phase === 'showing' || phase === 'incorrect' || phase === 'retrying_missed')
+                  ? handleMove
+                  : undefined
+              }
+              interactive={
+                previewMoveIdx === null &&
+                tempBoardFen === null &&
+                isUserTurn &&
+                (phase === 'showing' || phase === 'incorrect' || phase === 'retrying_missed')
+              }
               lastMove={lastMoveHighlight}
-              arrows={boardArrows}
+              arrows={effectiveArrows}
+              correctSquares={correctSquares}
+              incorrectSquares={incorrectSquares}
+              alternativeSquares={alternativeSquares}
+              dimmed={previewMoveIdx !== null}
             />
+
+            {/* Floating "Back to current position" pill when previewing historical breadcrumb move (ChessAtlas Kr) */}
+            {previewMoveIdx !== null && (
+              <div className="absolute top-3 inset-x-0 z-40 flex justify-center pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMoveIdx(null)}
+                  className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-stone-950/90 hover:bg-stone-900 border border-white/20 px-4 py-1.5 text-xs font-bold text-white shadow-xl transition-transform active:scale-95 cursor-pointer"
+                >
+                  <ArrowCounterClockwise size={14} className="text-amber-400" />
+                  <span>Back to current position</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Bottom Player Material Bar */}
@@ -658,15 +915,36 @@ export default function TrainingSession({
               </div>
 
               <div className="flex-1 min-w-0">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block mb-0.5">
-                  Repertoire Coach
-                </span>
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">
+                    {phase === 'retrying_missed' || phase === 'preparing_retry'
+                      ? 'Missed Move Drill'
+                      : trainingMode === 'learn'
+                      ? 'Guided Learn Coach'
+                      : 'Repertoire Recall'}
+                  </span>
+                  {phase === 'retrying_missed' && (
+                    <span className="rounded bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-300">
+                      Retry {retryQueueIdx + 1}/{missedSteps.length}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs sm:text-sm font-semibold text-white leading-relaxed">
-                  {wrongMoveFeedback ? (
+                  {phase === 'preparing_retry' ? (
+                    <span className="text-amber-300">
+                      Let&apos;s retry {missedSteps.length} missed move{missedSteps.length > 1 ? 's' : ''} before completing this line!
+                    </span>
+                  ) : alternativeMoveBanner ? (
+                    <span className="text-amber-300">{alternativeMoveBanner}</span>
+                  ) : wrongMoveFeedback ? (
                     <span className="text-rose-300">{wrongMoveFeedback}</span>
                   ) : phase === 'line_complete' ? (
                     <span className="text-emerald-300">
-                      Line mastered! Every move matched your repertoire.
+                      Variation mastered! Every move in this line is locked into memory.
+                    </span>
+                  ) : phase === 'retrying_missed' ? (
+                    <span className="text-amber-200">
+                      Play the correct repertoire move from memory for this missed position.
                     </span>
                   ) : phase === 'opponent_thinking' ? (
                     <span className="text-blue-300">
@@ -674,8 +952,15 @@ export default function TrainingSession({
                     </span>
                   ) : isUserTurn ? (
                     <span>
-                      Your turn: Play {orientation}&apos;s move (step {stepIndex + 1}/
-                      {activeLine?.moves.length || 1})
+                      {trainingMode === 'learn' && expectedMove ? (
+                        <>
+                          Play <strong className="font-mono text-emerald-400">{expectedMove.san}</strong> on the board (step {stepIndex + 1}/{activeLine?.moves.length || 1})
+                        </>
+                      ) : (
+                        <>
+                          Your turn: Recall {orientation}&apos;s move (step {stepIndex + 1}/{activeLine?.moves.length || 1})
+                        </>
+                      )}
                     </span>
                   ) : (
                     <span>Preparing next position...</span>
@@ -684,10 +969,36 @@ export default function TrainingSession({
               </div>
             </div>
 
-            {/* Move History Breadcrumb Trail (Standard ChessAtlas Notation format) */}
+            {/* Alternative Repertoire Move Banner (ChessAtlas Ca in useVariationPage-DuKpsf-3.js) */}
+            {alternativeMoveBanner && (
+              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 flex items-center gap-2 text-xs text-amber-200 font-medium">
+                <Sparkle size={16} weight="fill" className="text-amber-400 shrink-0" />
+                <span>{alternativeMoveBanner}</span>
+              </div>
+            )}
+
+            {/* Preparing Missed-Move Retry Progress Card (ChessAtlas preparing_retry) */}
+            {phase === 'preparing_retry' && (
+              <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/35 flex flex-col gap-2">
+                <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                  <span>Preparing missed moves drill...</span>
+                  <span className="font-mono">{missedSteps.length} to review</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-black/40 overflow-hidden">
+                  <motion.div
+                    initial={{ width: '0%' }}
+                    animate={{ width: '100%' }}
+                    transition={{ duration: 1.35, ease: 'linear' }}
+                    className="h-full bg-amber-400 rounded-full"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Move History Breadcrumb Trail (Interactive ChessAtlas es pills) */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400 px-1">
-                <span>Move Trail</span>
+                <span>Move Trail (click move to preview)</span>
                 <span className="font-mono">
                   {stepIndex} / {activeLine?.moves.length || 0} moves
                 </span>
@@ -696,19 +1007,29 @@ export default function TrainingSession({
                 {playedMoves.length === 0 ? (
                   <span className="text-gray-500 text-xs italic px-1">Starting position</span>
                 ) : (
-                  playedMoves.map((m, idx) => (
-                    <span
-                      key={idx}
-                      className={`inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-xs ${
-                        m.turn === orientation
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-blue-500/15 text-blue-300 border border-blue-500/25'
-                      }`}
-                    >
-                      {m.turn === 'white' ? `${Math.floor(idx / 2) + 1}. ` : ''}
-                      {m.san}
-                    </span>
-                  ))
+                  playedMoves.map((m, idx) => {
+                    const isPreviewed = previewMoveIdx === idx;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setPreviewMoveIdx(isPreviewed ? null : idx)}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-md font-semibold text-xs transition-all cursor-pointer ${
+                          isPreviewed
+                            ? 'bg-amber-400 text-stone-950 ring-2 ring-amber-300 shadow-sm'
+                            : m.turn === orientation
+                            ? m.isCorrect
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
+                            : 'bg-blue-500/15 text-blue-300 border border-blue-500/25 hover:bg-blue-500/25'
+                        }`}
+                        title="Click to preview this position on the board"
+                      >
+                        {m.turn === 'white' ? `${Math.floor(idx / 2) + 1}. ` : ''}
+                        {m.san}
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </div>

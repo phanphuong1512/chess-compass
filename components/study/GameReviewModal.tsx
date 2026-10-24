@@ -32,11 +32,14 @@ import {
   Frown,
   Meh,
 } from 'lucide-react';
+import { Chess } from 'chess.js';
 import type { ImportedGame, Repertoire } from '@/types/chess';
 import type { RepertoireDAG } from '@/lib/chess/dag';
 import { fenToNodeId, STARTING_FEN } from '@/lib/chess/dag';
 import {
   analyzeFullGameAsync,
+  computeGameInsights,
+  getGameResultBadges,
   type GameReviewResult,
   type MoveReviewItem,
   type MoveClassification,
@@ -50,7 +53,7 @@ import MaterialDifferenceBar from './MaterialDifferenceBar';
 import { calculateMaterial } from '@/lib/chess/material';
 import { playMoveSound, playCaptureSound, playCheckSound, playErrorSound } from '@/lib/chess/audio';
 import { ClassificationIcon } from '@/components/icons/MoveClassificationIcons';
-import { GraduationCap } from '@phosphor-icons/react';
+import { GraduationCap, ChartLineUp, Flame, Clock } from '@phosphor-icons/react';
 
 interface GameReviewModalProps {
   game: ImportedGame;
@@ -61,7 +64,7 @@ interface GameReviewModalProps {
   onAddToTraining?: (nodeId: string) => void;
 }
 
-export type ReviewViewMode = 'report' | 'detail' | 'retry';
+export type ReviewViewMode = 'report' | 'detail' | 'retry' | 'insights';
 
 interface RetryMistakeItem {
   ply: number;
@@ -263,13 +266,18 @@ export default function GameReviewModal({
   onClose,
   onAddToTraining,
 }: GameReviewModalProps) {
-  // 3 distinct view modes: 'report' (overview), 'detail' (move analysis), 'retry' (solve mistakes)
+  // 4 distinct ChessAtlas view modes: 'report', 'detail', 'retry', 'insights'
   const [viewMode, setViewMode] = useState<ReviewViewMode>('report');
   const [currentPly, setCurrentPly] = useState(0);
   const [showBestMove, setShowBestMove] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>(userColor);
+  const [enginePanelOpen, setEnginePanelOpen] = useState(true);
+
+  // Interactive Variation Exploration state in Detail mode (useExploreLine in ChessAtlas)
+  const [exploreFen, setExploreFen] = useState<string | null>(null);
+  const [exploreLastMove, setExploreLastMove] = useState<{ from: string; to: string } | null>(null);
 
   // Retry Mistakes Mode State
   const [retryIndex, setRetryIndex] = useState(0);
@@ -351,8 +359,14 @@ export default function GameReviewModal({
   const currentMove: MoveReviewItem | undefined =
     reviewResult && currentPly > 0 ? reviewResult.moves[currentPly - 1] : undefined;
 
-  // Deriving currentFen directly guarantees 100% accurate piece positions
-  const currentFen = useMemo(() => {
+  // Reset interactive variation exploration whenever currentPly changes
+  useEffect(() => {
+    setExploreFen(null);
+    setExploreLastMove(null);
+  }, [currentPly]);
+
+  // Deriving baseGameFen directly guarantees 100% accurate piece positions
+  const baseGameFen = useMemo(() => {
     if (!reviewResult || !reviewResult.moves || reviewResult.moves.length === 0) {
       return STARTING_FEN;
     }
@@ -362,6 +376,42 @@ export default function GameReviewModal({
     const moveIdx = Math.min(currentPly - 1, reviewResult.moves.length - 1);
     return reviewResult.moves[moveIdx]?.fenAfter || STARTING_FEN;
   }, [reviewResult, currentPly]);
+
+  const currentFen = exploreFen ?? baseGameFen;
+  const isExploring = exploreFen !== null;
+
+  // Handle free-play variation exploration move on the board in Detail mode (ChessAtlas zs)
+  const handleExploreBoardMove = React.useCallback(
+    (move: { from: string; to: string; san: string; promotion?: string }) => {
+      try {
+        const chess = new Chess(currentFen);
+        const res = chess.move({
+          from: move.from,
+          to: move.to,
+          promotion: move.promotion || 'q',
+        });
+        if (res) {
+          setExploreFen(chess.fen());
+          setExploreLastMove({ from: res.from, to: res.to });
+        }
+      } catch {}
+    },
+    [currentFen]
+  );
+
+  // Compute full ChessAtlas Game Insights (er in useEngineEnabled-CClyn6Sc.js)
+  const insightsData = useMemo(() => {
+    if (!reviewResult) return null;
+    return computeGameInsights(game, reviewResult, userColor);
+  }, [game, reviewResult, userColor]);
+
+  // End-of-game King Result Badges (pieceBadges in ChessAtlas when currentPly === totalPlies)
+  const endOfGameBadges = useMemo((): ClassificationBadge[] | null => {
+    if (viewMode !== 'detail' || isExploring || !reviewResult || totalPlies === 0 || currentPly !== totalPlies) {
+      return null;
+    }
+    return getGameResultBadges(baseGameFen, game.result, game.pgn);
+  }, [viewMode, isExploring, reviewResult, totalPlies, currentPly, baseGameFen, game.result, game.pgn]);
 
   // Extract all retryable mistakes for the user
   const retryMistakes = useMemo((): RetryMistakeItem[] => {
@@ -460,7 +510,7 @@ export default function GameReviewModal({
 
   // Destination square badge glyph on ChessBoard (ChessAtlas destination glyph overlay)
   const classificationBadge = useMemo((): ClassificationBadge | null => {
-    if (viewMode !== 'detail' || !currentMove) return null;
+    if (viewMode !== 'detail' || isExploring || !currentMove) return null;
     const meta = CLASSIFICATION_META[currentMove.classification];
     if (!meta) return null;
     return {
@@ -469,7 +519,7 @@ export default function GameReviewModal({
       glyph: meta.short,
       icon: meta.label,
     };
-  }, [viewMode, currentMove]);
+  }, [viewMode, isExploring, currentMove]);
 
   // Constructed arrows for ChessBoard
   const boardArrows = useMemo(() => {
@@ -523,9 +573,10 @@ export default function GameReviewModal({
 
   const lastMoveHighlight = useMemo(() => {
     if (viewMode === 'retry') return null;
+    if (isExploring) return exploreLastMove;
     if (!currentMove) return null;
     return { from: currentMove.from, to: currentMove.to };
-  }, [viewMode, currentMove]);
+  }, [viewMode, isExploring, exploreLastMove, currentMove]);
 
   // Chess.com Real Win Probability & Eval Bar State
   const winProbWhite = useMemo(() => {
@@ -622,6 +673,7 @@ export default function GameReviewModal({
     'brilliant',
     'great',
     'best',
+    'forced',
     'excellent',
     'good',
     'book',
@@ -699,6 +751,18 @@ export default function GameReviewModal({
               <RefreshCw className="h-3.5 w-3.5" />
               <span>Retry ({retryMistakes.length})</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('insights')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'insights'
+                  ? 'bg-emerald-500 text-stone-950 shadow-md'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <ChartLineUp className="h-3.5 w-3.5" weight="bold" />
+              <span>Insights</span>
+            </button>
           </div>
 
           {/* Actions: Sound, Re-analyze, Close */}
@@ -759,20 +823,21 @@ export default function GameReviewModal({
         {/* ========================================================================= */}
         {viewMode === 'report' && reviewResult && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6 max-w-4xl mx-auto w-full">
-            {/* Mascot Coach Mood Card */}
-            <div className="flex items-center gap-4 p-4 sm:p-5 rounded-2xl bg-white/[0.04] border border-white/10 shadow-lg">
-              <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+            {/* Mascot Coach Speech Bubble (ChessAtlas Ct in useEngineEnabled-CClyn6Sc.js) */}
+            <div className="flex items-center gap-3.5">
+              <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0 shadow-md">
                 {mascotMood.expression === 'happy' ? (
-                  <Smile className="h-7 w-7 sm:h-8 sm:w-8" />
+                  <Smile className="h-8 w-8 sm:h-9 sm:w-9" />
                 ) : mascotMood.expression === 'sad' ? (
-                  <Frown className="h-7 w-7 sm:h-8 sm:w-8" />
+                  <Frown className="h-8 w-8 sm:h-9 sm:w-9" />
                 ) : (
-                  <Meh className="h-7 w-7 sm:h-8 sm:w-8" />
+                  <Meh className="h-8 w-8 sm:h-9 sm:w-9" />
                 )}
               </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-base sm:text-lg font-extrabold text-white">{mascotMood.title}</h3>
-                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 leading-relaxed">{mascotMood.desc}</p>
+              <div className="relative flex-1 min-w-0 rounded-2xl bg-white px-4 py-3 text-[#151922] shadow-[0_6px_20px_-6px_rgba(0,0,0,0.5)]">
+                <div className="absolute top-1/2 -left-1.5 size-3 -translate-y-1/2 rotate-45 bg-white" />
+                <p className="relative text-sm sm:text-base font-extrabold text-[#151922]">{mascotMood.title}</p>
+                <p className="relative text-xs sm:text-sm text-[#4B5262] mt-0.5 leading-relaxed">{mascotMood.desc}</p>
               </div>
             </div>
 
@@ -885,29 +950,40 @@ export default function GameReviewModal({
               </div>
             </div>
 
-            {/* Action Buttons: Start Review & Retry Mistakes */}
-            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+            {/* Action Buttons: Start Review + Secondary Row (Retry Mistakes & Insights) */}
+            <div className="flex flex-col gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => {
                   setViewMode('detail');
                   setCurrentPly(1);
                 }}
-                className="w-full flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 py-3.5 text-sm font-extrabold text-stone-950 transition-transform active:scale-[0.98] cursor-pointer shadow-lg"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 py-3.5 text-sm font-extrabold text-stone-950 transition-transform active:scale-[0.98] cursor-pointer shadow-lg"
               >
                 <Play className="h-4 w-4 fill-current" />
                 <span>Start Review</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleStartRetry}
-                disabled={retryMistakes.length === 0}
-                className="w-full sm:w-auto px-6 flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 py-3.5 text-sm font-bold text-white transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>Retry Mistakes ({retryMistakes.length})</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleStartRetry}
+                  disabled={retryMistakes.length === 0}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 py-3 text-xs sm:text-sm font-bold text-white transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                >
+                  <RefreshCw className="h-4 w-4 text-amber-400" />
+                  <span>Retry Mistakes ({retryMistakes.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('insights')}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 py-3 text-xs sm:text-sm font-bold text-white transition-colors cursor-pointer"
+                >
+                  <ChartLineUp className="h-4 w-4 text-emerald-400" weight="bold" />
+                  <span>Insights</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -935,15 +1011,17 @@ export default function GameReviewModal({
                     </div>
                   </div>
 
-                  {/* Interactive ChessBoard with Destination Square Badge Glyph */}
+                  {/* Interactive ChessBoard with Destination Square Badge Glyph & End-of-game King Badges */}
                   <div className="flex-1 aspect-square relative rounded-xl overflow-hidden border border-white/10 shadow-2xl bg-[#141B29]">
                     <ChessBoard
                       fen={currentFen}
                       orientation={boardOrientation}
-                      interactive={false}
+                      interactive={true}
+                      onMove={handleExploreBoardMove}
                       lastMove={lastMoveHighlight}
-                      arrows={boardArrows}
+                      arrows={isExploring ? [] : boardArrows}
                       classificationBadge={classificationBadge}
+                      pieceBadges={endOfGameBadges}
                     />
                   </div>
                 </div>
@@ -1060,31 +1138,87 @@ export default function GameReviewModal({
                 )}
               </div>
 
-              {/* Coach Narration Card */}
-              <div className="p-4 border-b border-white/[0.08] bg-white/[0.02] shrink-0">
+              {/* Coach Narration Speech Bubble (ChessAtlas jn in coach-narration-DW2jGx1m.js) */}
+              <div className="p-3.5 border-b border-white/[0.08] bg-[#0E131F] shrink-0">
                 {currentMove ? (
                   <div className="flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ClassificationIcon classification={currentMove.classification} size={28} />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-mono font-bold text-gray-400">
-                              {Math.ceil(currentMove.ply / 2)}.
-                              {currentMove.ply % 2 === 1 ? '' : '..'}
-                            </span>
-                            <span className="text-sm font-extrabold text-white">{currentMove.san}</span>
-                          </div>
-                          <span
-                            className="text-xs font-bold uppercase tracking-wider"
-                            style={{ color: CLASSIFICATION_META[currentMove.classification]?.dotColor }}
-                          >
-                            {CLASSIFICATION_META[currentMove.classification]?.label}
+                    <div className="flex items-center gap-3">
+                      <div className="shrink-0">
+                        <ClassificationIcon classification={currentMove.classification} size={34} />
+                      </div>
+                      <div className="relative flex-1 min-w-0 rounded-2xl bg-white px-3.5 py-2.5 text-[#151922] shadow-[0_6px_20px_-6px_rgba(0,0,0,0.45)]">
+                        <div className="absolute top-1/2 -left-1.5 size-3 -translate-y-1/2 rotate-45 bg-white" />
+                        <div className="relative flex items-center justify-between gap-2">
+                          <span className="text-xs sm:text-sm font-extrabold text-[#151922] truncate">
+                            {Math.ceil(currentMove.ply / 2)}.
+                            {currentMove.ply % 2 === 1 ? '' : '..'} {currentMove.san} is{' '}
+                            {currentMove.classification === 'inaccuracy' || currentMove.classification === 'excellent'
+                              ? 'an'
+                              : 'a'}{' '}
+                            {CLASSIFICATION_META[currentMove.classification]?.label.toLowerCase()} move
+                          </span>
+                          <span className="shrink-0 rounded-md bg-[#151922]/10 px-1.5 py-0.5 font-mono text-[11px] font-bold text-[#151922]">
+                            {evalLabel}
                           </span>
                         </div>
+                        <p className="relative mt-1 text-xs leading-snug text-[#4B5262]">
+                          {currentMove.comment}
+                          {currentMove.bestMove &&
+                            currentMove.bestMove.san !== currentMove.san &&
+                            (currentMove.classification === 'inaccuracy' ||
+                              currentMove.classification === 'mistake' ||
+                              currentMove.classification === 'miss' ||
+                              currentMove.classification === 'blunder') && (
+                              <span className="ml-1 font-bold text-[#15803D]">
+                                Best was {currentMove.bestMove.san}.
+                              </span>
+                            )}
+                        </p>
                       </div>
+                    </div>
 
-                      {/* Best move toggle button */}
+                    {/* Repertoire Match or Deviation Banner (ChessAtlas Rn / yr) */}
+                    {currentMove.isRepertoireMove && (
+                      <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
+                        <BookOpen className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                        <span>Matches your opening repertoire preparation</span>
+                      </div>
+                    )}
+                    {currentMove.isDeviation && (
+                      <div className="flex items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2 text-rose-300">
+                          <span className="size-2 rounded-full bg-rose-500 shrink-0" />
+                          <span>
+                            Repertoire deviation! Your prepared move was{' '}
+                            <strong className="font-mono text-white">{currentMove.expectedRepertoireSan}</strong>
+                          </span>
+                        </div>
+                        {onAddToTraining && (
+                          <button
+                            type="button"
+                            onClick={() => onAddToTraining(fenToNodeId(currentMove.fenBefore))}
+                            className="shrink-0 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 px-2 py-1 text-[11px] font-bold text-rose-200 transition-colors cursor-pointer"
+                          >
+                            Train
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Best Move Arrow Toggle & Collapsible SF 19 NNUE Live Engine Header */}
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setEnginePanelOpen((o) => !o)}
+                        className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-gray-400 hover:text-white transition-colors cursor-pointer"
+                      >
+                        <Cpu className="h-3.5 w-3.5 text-emerald-400" />
+                        <span>SF 19 NNUE</span>
+                        <span className="rounded bg-white/10 px-1.5 py-0.2 text-[10px] text-emerald-300">
+                          {evalLabel}
+                        </span>
+                      </button>
+
                       {currentMove.bestMove && (
                         <button
                           type="button"
@@ -1101,25 +1235,40 @@ export default function GameReviewModal({
                       )}
                     </div>
 
-                    <p className="text-xs text-gray-300 leading-relaxed font-sans">
-                      {currentMove.comment}
-                    </p>
-
-                    {currentMove.tacticalExplanation && (
+                    {enginePanelOpen && currentMove.tacticalExplanation && (
                       <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-xs text-gray-400 font-sans leading-relaxed">
-                        <span className="font-bold text-amber-300 block mb-0.5">Engine Tactical Reason:</span>
                         {currentMove.tacticalExplanation}
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-center py-4">
-                    <p className="text-xs text-gray-400">Starting position. Use controls or arrow keys to step forward.</p>
+                  <div className="text-center py-3">
+                    <p className="text-xs text-gray-400">
+                      Starting position. Use arrow keys or play moves on the board to explore variations.
+                    </p>
                   </div>
                 )}
               </div>
 
-              {/* Scrollable Move List (ChessAtlas Move Tree format) */}
+              {/* Exploring Variation Banner (ChessAtlas Os in useEngineEnabled-CClyn6Sc.js) */}
+              {isExploring && (
+                <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-amber-500/20 bg-amber-500/10 text-xs shrink-0">
+                  <span className="font-semibold text-amber-300">Exploring variation on board</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExploreFen(null);
+                      setExploreLastMove(null);
+                    }}
+                    className="flex items-center gap-1 font-bold text-amber-300 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>Reset</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Scrollable Move List (ChessAtlas Pn in replay-positions-D4kalvHx.js) */}
               <div ref={moveListRef} className="flex-1 overflow-y-auto p-2 divide-y divide-white/[0.03]">
                 {Array.from({ length: Math.ceil(totalPlies / 2) }).map((_, moveNumberIdx) => {
                   const moveNumber = moveNumberIdx + 1;
@@ -1151,8 +1300,25 @@ export default function GameReviewModal({
                               : 'hover:bg-white/5 text-gray-200'
                           }`}
                         >
-                          <span>{whiteMove.san}</span>
-                          <ClassificationIcon classification={whiteMove.classification} size={15} />
+                          <span className="flex items-center gap-1.5 truncate">
+                            <ClassificationIcon classification={whiteMove.classification} size={15} />
+                            <span>{whiteMove.san}</span>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            {whiteMove.isDeviation && (
+                              <span
+                                className="text-[10px] text-rose-400"
+                                title={`Repertoire deviation (expected ${whiteMove.expectedRepertoireSan})`}
+                              >
+                                ●
+                              </span>
+                            )}
+                            {whiteMove.isTransposition && (
+                              <span className="text-[10px] text-amber-400" title="Transposed into repertoire">
+                                ⇄
+                              </span>
+                            )}
+                          </span>
                         </button>
                       ) : (
                         <span />
@@ -1173,8 +1339,25 @@ export default function GameReviewModal({
                               : 'hover:bg-white/5 text-gray-200'
                           }`}
                         >
-                          <span>{blackMove.san}</span>
-                          <ClassificationIcon classification={blackMove.classification} size={15} />
+                          <span className="flex items-center gap-1.5 truncate">
+                            <ClassificationIcon classification={blackMove.classification} size={15} />
+                            <span>{blackMove.san}</span>
+                          </span>
+                          <span className="flex items-center gap-1">
+                            {blackMove.isDeviation && (
+                              <span
+                                className="text-[10px] text-rose-400"
+                                title={`Repertoire deviation (expected ${blackMove.expectedRepertoireSan})`}
+                              >
+                                ●
+                              </span>
+                            )}
+                            {blackMove.isTransposition && (
+                              <span className="text-[10px] text-amber-400" title="Transposed into repertoire">
+                                ⇄
+                              </span>
+                            )}
+                          </span>
                         </button>
                       ) : (
                         <span />
@@ -1336,6 +1519,254 @@ export default function GameReviewModal({
                       <span>Skip this mistake</span>
                     </button>
                   </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* VIEW MODE 4: INSIGHTS VIEW (ChessAtlas sr / er in useEngineEnabled-CClyn6Sc) */}
+        {/* ========================================================================= */}
+        {viewMode === 'insights' && reviewResult && insightsData && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-5 max-w-4xl mx-auto w-full">
+            {/* Header & Back to Report */}
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setViewMode('report')}
+                className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span>Back to Report</span>
+              </button>
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                Game Insights
+              </span>
+            </div>
+
+            {/* 1. Opening Card (ChessAtlas Zn) */}
+            <div className="flex items-center gap-3.5 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                <BookOpen className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-extrabold text-white">
+                    {insightsData.openingName}
+                  </p>
+                  {insightsData.openingEco && (
+                    <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-mono font-bold text-gray-300">
+                      {insightsData.openingEco}
+                    </span>
+                  )}
+                </div>
+                {insightsData.lastBookPly > 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Last book move: Move {Math.ceil(insightsData.lastBookPly / 2)}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Accuracy by Phase (ChessAtlas Un + nr) */}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 flex flex-col gap-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                Accuracy by Phase
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {(
+                  [
+                    ['opening', 'Opening'],
+                    ['middlegame', 'Middlegame'],
+                    ['endgame', 'Endgame'],
+                  ] as const
+                ).map(([phaseKey, phaseLabel]) => {
+                  const phaseObj = insightsData.phases[phaseKey];
+                  const userPhaseAcc = phaseObj
+                    ? userColor === 'white'
+                      ? phaseObj.whiteAccuracy
+                      : phaseObj.blackAccuracy
+                    : null;
+                  const oppPhaseAcc = phaseObj
+                    ? userColor === 'white'
+                      ? phaseObj.blackAccuracy
+                      : phaseObj.whiteAccuracy
+                    : null;
+                  const oppName = userColor === 'white' ? game.black : game.white;
+
+                  return (
+                    <div
+                      key={phaseKey}
+                      className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5"
+                    >
+                      <span className="text-xs font-bold text-gray-300">{phaseLabel}</span>
+
+                      {userPhaseAcc !== null ? (
+                        <>
+                          <AccuracyRing
+                            accuracy={userPhaseAcc}
+                            shown={`${userPhaseAcc.toFixed(0)}%`}
+                            className="size-20"
+                          />
+                          {oppPhaseAcc !== null && (
+                            <span className="text-[11px] text-gray-400 truncate max-w-full">
+                              {oppName}: <strong className="font-mono text-gray-200">{oppPhaseAcc.toFixed(0)}%</strong>
+                            </span>
+                          )}
+
+                          {/* Phase Error Badges (clickable to jump to ply in Detail view) */}
+                          <div className="mt-1 flex flex-wrap items-center justify-center gap-1">
+                            {phaseObj && phaseObj.userErrors.length === 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-bold text-emerald-400">
+                                <CheckCircle2 className="h-3 w-3" /> Clean phase
+                              </span>
+                            ) : (
+                              phaseObj?.userErrors.slice(0, 6).map((err) => (
+                                <button
+                                  key={err.ply}
+                                  type="button"
+                                  onClick={() => {
+                                    setCurrentPly(err.ply);
+                                    setViewMode('detail');
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 px-1.5 py-0.5 text-[11px] font-mono font-bold text-gray-200 transition-colors cursor-pointer"
+                                  title={`Jump to ${err.moveNum}. ${err.san} (-${err.winDrop}% win prob)`}
+                                >
+                                  <ClassificationIcon classification={err.classification} size={13} />
+                                  <span>{err.san}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex size-20 items-center justify-center">
+                          <span className="text-xs text-gray-500">Not reached</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. Key Moments: Costliest Move & Longest Think */}
+            {(insightsData.costliestMove || insightsData.longestThink) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {insightsData.costliestMove && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPly(insightsData.costliestMove!.ply);
+                      setViewMode('detail');
+                    }}
+                    className="flex items-center gap-3.5 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] px-4 py-3.5 text-left transition-colors cursor-pointer"
+                  >
+                    <ClassificationIcon
+                      classification={insightsData.costliestMove.classification}
+                      size={32}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        Costliest Move
+                      </p>
+                      <p className="text-sm font-extrabold text-white mt-0.5">
+                        {insightsData.costliestMove.moveNum}
+                        {userColor === 'white' ? '. ' : '... '}
+                        {insightsData.costliestMove.san}{' '}
+                        <span className="font-mono text-xs font-bold text-rose-400">
+                          (-{insightsData.costliestMove.winDrop}% win chance)
+                        </span>
+                      </p>
+                      {insightsData.costliestMove.bestSan && (
+                        <p className="text-xs text-emerald-400 mt-0.5 font-mono">
+                          Best was {insightsData.costliestMove.bestSan}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                )}
+
+                {insightsData.longestThink && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPly(insightsData.longestThink!.ply);
+                      setViewMode('detail');
+                    }}
+                    className="flex items-center gap-3.5 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] px-4 py-3.5 text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                      <Clock className="h-5 w-5" weight="bold" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        Longest Think
+                      </p>
+                      <p className="text-sm font-extrabold text-white mt-0.5">
+                        {insightsData.longestThink.timeSeconds}s{' '}
+                        <span className="font-normal text-xs text-gray-400">
+                          on {insightsData.longestThink.moveNum}
+                          {userColor === 'white' ? '. ' : '... '}
+                          {insightsData.longestThink.san}
+                        </span>
+                      </p>
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 4. Player Comparison Table (Performance Rating, ACPL, Avg Move Time) */}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 pb-3 mb-3 border-b border-white/10">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="size-2.5 rounded-full bg-white ring-2 ring-white/20 shrink-0" />
+                  <span className="text-xs font-bold text-white truncate">{game.white}</span>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">vs</span>
+                <div className="flex items-center justify-end gap-2 min-w-0">
+                  <span className="text-xs font-bold text-white truncate">{game.black}</span>
+                  <span className="size-2.5 rounded-full bg-stone-900 border border-white/50 shrink-0" />
+                </div>
+              </div>
+
+              <div className="flex flex-col divide-y divide-white/[0.05]">
+                {/* Game Performance Rating */}
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-2.5">
+                  <span className="text-sm font-mono font-extrabold text-emerald-400">
+                    {insightsData.whitePerformanceRating}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-400">Performance Rating</span>
+                  <span className="text-right text-sm font-mono font-extrabold text-emerald-400">
+                    {insightsData.blackPerformanceRating}
+                  </span>
+                </div>
+
+                {/* ACPL */}
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-2.5">
+                  <span className="text-sm font-mono font-bold text-white">
+                    {insightsData.whiteAcpl ?? '—'}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-400">Avg Centipawn Loss (ACPL)</span>
+                  <span className="text-right text-sm font-mono font-bold text-white">
+                    {insightsData.blackAcpl ?? '—'}
+                  </span>
+                </div>
+
+                {/* Avg Move Time (if clock data available) */}
+                {(insightsData.whiteAvgMoveTime !== null || insightsData.blackAvgMoveTime !== null) && (
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-2.5">
+                    <span className="text-sm font-mono font-bold text-white">
+                      {insightsData.whiteAvgMoveTime !== null ? `${insightsData.whiteAvgMoveTime}s` : '—'}
+                    </span>
+                    <span className="text-xs font-semibold text-gray-400">Avg Move Time</span>
+                    <span className="text-right text-sm font-mono font-bold text-white">
+                      {insightsData.blackAvgMoveTime !== null ? `${insightsData.blackAvgMoveTime}s` : '—'}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>

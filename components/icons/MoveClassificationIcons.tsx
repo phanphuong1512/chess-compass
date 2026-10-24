@@ -267,6 +267,30 @@ export function BlunderIcon({ size = 20, className = '' }: IconProps) {
   );
 }
 
+// 11. Forced (→) — ChessAtlas Forced Move Green with right arrow
+export function ForcedIcon({ size = 20, className = '' }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={`shrink-0 drop-shadow-xs ${className}`}
+      aria-label="Forced move"
+    >
+      <circle cx="12" cy="12" r="11" fill="#81B64C" />
+      <circle cx="12" cy="12" r="10.5" stroke="rgba(255,255,255,0.25)" strokeWidth="0.75" />
+      <path
+        d="M7 12h9M13 8l4 4-4 4"
+        stroke="#FFFFFF"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * Universal move classification icon dispatcher.
  */
@@ -286,6 +310,8 @@ export function ClassificationIcon({
       return <GreatIcon size={size} className={className} />;
     case 'best':
       return <BestIcon size={size} className={className} />;
+    case 'forced':
+      return <ForcedIcon size={size} className={className} />;
     case 'excellent':
       return <ExcellentIcon size={size} className={className} />;
     case 'good':
