@@ -891,19 +891,17 @@ export default function StudyPage() {
         <div className="flex-1 overflow-y-auto">
           {/* Active Training Session */}
           {isTraining ? (
-            <main className="mx-auto max-w-lg px-4 py-6">
-              <TrainingSession
-                cards={trainingCards}
-                nodes={nodesMap}
-                edges={edgesMap}
-                onUpdateCard={handleUpdateCard}
-                onComplete={() => setIsTraining(false)}
-                orientation={activeRepertoire?.color || orientation}
-                repertoireName={activeRepertoire?.name}
-                lines={repertoireLines}
-                filterNodeIds={trainingFilterNodeIds}
-              />
-            </main>
+            <TrainingSession
+              cards={trainingCards}
+              nodes={nodesMap}
+              edges={edgesMap}
+              onUpdateCard={handleUpdateCard}
+              onComplete={() => setIsTraining(false)}
+              orientation={activeRepertoire?.color || orientation}
+              repertoireName={activeRepertoire?.name}
+              lines={repertoireLines}
+              filterNodeIds={trainingFilterNodeIds}
+            />
           ) : studyNavTab === 'repertoire' ? (
             screenMode === 'dashboard' ? (
               <RepertoireDashboard

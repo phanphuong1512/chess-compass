@@ -10,6 +10,13 @@ import type { Key } from 'chessground/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { playMoveSound, playCaptureSound, playCheckSound, playErrorSound } from '@/lib/chess/audio';
 
+export interface ClassificationBadge {
+  square: string;
+  color: string;
+  glyph: string;
+  icon?: string;
+}
+
 interface ChessBoardProps {
   fen: string;
   onMove?: (move: { from: string; to: string; san: string; promotion?: string }) => void;
@@ -18,6 +25,7 @@ interface ChessBoardProps {
   lastMove?: { from: string; to: string } | null;
   arrows?: Array<{ from: string; to: string; color: string }>;
   showCoordinates?: boolean;
+  classificationBadge?: ClassificationBadge | null;
 }
 
 export default function ChessBoard({
@@ -28,6 +36,7 @@ export default function ChessBoard({
   lastMove = null,
   arrows = [],
   showCoordinates = true,
+  classificationBadge = null,
 }: ChessBoardProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<Api | null>(null);
@@ -180,6 +189,27 @@ export default function ChessBoard({
     }
   }, [chess, orientation, interactive, legalDests, lastMove, showCoordinates, autoShapes, handleAfterMove]);
 
+  // Destination square badge overlay calculation
+  const badgePosition = useMemo(() => {
+    if (!classificationBadge || !classificationBadge.square || classificationBadge.square.length < 2) return null;
+    const file = classificationBadge.square[0].toLowerCase();
+    const rank = parseInt(classificationBadge.square[1], 10);
+    if (file < 'a' || file > 'h' || isNaN(rank) || rank < 1 || rank > 8) return null;
+
+    const fileIdx = file.charCodeAt(0) - 97; // 0..7
+    const rankIdx = rank - 1; // 0..7
+
+    const col = orientation === 'white' ? fileIdx : 7 - fileIdx;
+    const row = orientation === 'white' ? 7 - rankIdx : rankIdx;
+
+    return {
+      left: `${(col * 100) / 8}%`,
+      top: `${(row * 100) / 8}%`,
+      width: `${100 / 8}%`,
+      height: `${100 / 8}%`,
+    };
+  }, [classificationBadge, orientation]);
+
   // Clean up
   useEffect(() => {
     return () => {
@@ -199,6 +229,26 @@ export default function ChessBoard({
           height: '100%',
         }}
       />
+
+      {/* Destination square classification badge glyph */}
+      {badgePosition && classificationBadge && (
+        <div
+          className="pointer-events-none absolute z-30 flex items-start justify-end p-0.5 sm:p-1"
+          style={{
+            left: badgePosition.left,
+            top: badgePosition.top,
+            width: badgePosition.width,
+            height: badgePosition.height,
+          }}
+        >
+          <div
+            className="flex size-5 sm:size-6 items-center justify-center rounded-full shadow-lg font-black text-[10px] sm:text-xs text-white border border-white/40 ring-1 ring-black/40"
+            style={{ backgroundColor: classificationBadge.color }}
+          >
+            {classificationBadge.glyph}
+          </div>
+        </div>
+      )}
 
       {/* Interactive Promotion Dialog */}
       <AnimatePresence>

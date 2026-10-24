@@ -89,7 +89,7 @@ export function extractRepertoireLines(
   function dfs(currentNodeId: string, currentFen: string, path: PathStep[]) {
     const outgoing = dag
       .getEdgesFrom(currentNodeId)
-      .filter((e) => e.repertoireId === repertoireId);
+      .filter((e) => !repertoireId || e.repertoireId === repertoireId);
 
     if (outgoing.length === 0) {
       // Reached a leaf position! Create a line
